@@ -1,0 +1,17 @@
+{
+  "name": "garage-clock",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:kiosk": "npm run dev -w apps/kiosk",
+    "build": "npm run build -w apps/api && npm run build -w apps/kiosk",
+    "build:all": "npm run build --workspaces --if-present",
+    "start": "npm run start:prod -w apps/api"
+  }
+}

@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-900 text-slate-100 font-sans m-0 p-0 overflow-hidden;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+/* Animated gradient background */
+.animated-bg {
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  z-index: -1;
+  background: radial-gradient(circle at center, #1e3a8a 0%, #0f172a 40%, #020617 100%);
+  animation: slowPulse 20s ease-in-out infinite alternate;
+}
+
+@keyframes slowPulse {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.1) translate(-2%, -2%); }
+}
+
+.glass-panel {
+  @apply bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl;
+}
+
+.keypad-btn {
+  @apply w-20 h-20 text-3xl font-light rounded-full bg-slate-700/50 hover:bg-indigo-500/80 active:bg-indigo-600 active:scale-95 transition-all duration-200 border border-slate-600/50 shadow flex items-center justify-center;
+}
