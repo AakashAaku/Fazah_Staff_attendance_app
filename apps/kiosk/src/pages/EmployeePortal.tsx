@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UserCircle, Clock, LogOut, CheckSquare, Wrench, Play, CheckCircle2, Package, Pause, RefreshCw, Zap, Plus, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../services/api';
 
 export default function EmployeePortal() {
   const [employeeCode, setEmployeeCode] = useState('');
@@ -71,7 +72,7 @@ export default function EmployeePortal() {
     setLoginError('');
     setLoading(true);
     try {
-      const res = await fetch(`/api/kiosk/staff-login`, {
+      const res = await apiFetch(`/api/kiosk/staff-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeCode, pin })
@@ -89,19 +90,19 @@ export default function EmployeePortal() {
 
   const fetchEmpData = async (empId: string) => {
     try {
-      const resPunches = await fetch(`/api/kiosk/staff-punches/${empId}`);
+      const resPunches = await apiFetch(`/api/kiosk/staff-punches/${empId}`);
       if (resPunches.ok) setPunches(await resPunches.json());
 
-      const resTasks = await fetch(`/api/kiosk/staff-tasks/${empId}`);
+      const resTasks = await apiFetch(`/api/kiosk/staff-tasks/${empId}`);
       if (resTasks.ok) setTasks(await resTasks.json());
 
-      const resJobs = await fetch(`/api/job-cards/mechanic/${empId}`);
+      const resJobs = await apiFetch(`/api/job-cards/mechanic/${empId}`);
       if (resJobs.ok) setJobCards(await resJobs.json());
 
-      const resParts = await fetch(`/api/job-cards/inventory-parts`);
+      const resParts = await apiFetch(`/api/job-cards/inventory-parts`);
       if (resParts.ok) setInventoryParts(await resParts.json());
 
-      const resTimeline = await fetch(`/api/kiosk/staff-work-timeline/${empId}`);
+      const resTimeline = await apiFetch(`/api/kiosk/staff-work-timeline/${empId}`);
       if (resTimeline.ok) setWorkTimeline(await resTimeline.json());
     } catch (e) {
       console.error(e);
@@ -110,7 +111,7 @@ export default function EmployeePortal() {
 
   const updateJobStatus = async (jobId: string, status: string, pauseReason?: string) => {
     try {
-      await fetch(`/api/job-cards/${jobId}/status`, {
+      await apiFetch(`/api/job-cards/${jobId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -130,7 +131,7 @@ export default function EmployeePortal() {
 
   const updateTaskStatus = async (taskId: string, status: string, pauseReason?: string, note?: string) => {
     try {
-      await fetch(`/api/kiosk/staff-tasks/${taskId}/status`, {
+      await apiFetch(`/api/kiosk/staff-tasks/${taskId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -149,7 +150,7 @@ export default function EmployeePortal() {
 
   const updateLaborTaskStatus = async (laborId: string, status: string, pauseReason?: string) => {
     try {
-      await fetch(`/api/job-cards/labors/${laborId}/status`, {
+      await apiFetch(`/api/job-cards/labors/${laborId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -168,7 +169,7 @@ export default function EmployeePortal() {
   const handleQwcSubmit = async () => {
     if (!selectedJob) return;
     try {
-      await fetch(`/api/job-cards/${selectedJob.id}/handover-qwc`, {
+      await apiFetch(`/api/job-cards/${selectedJob.id}/handover-qwc`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export default function EmployeePortal() {
 
   const fetchSingleJob = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/job-cards/${jobId}`);
+      const res = await apiFetch(`/api/job-cards/${jobId}`);
       if (res.ok) setSelectedJob(await res.json());
     } catch (e) {
       console.error(e);
@@ -229,7 +230,7 @@ export default function EmployeePortal() {
     }
 
     try {
-      await fetch(`/api/job-cards/${selectedJob.id}/parts`, {
+      await apiFetch(`/api/job-cards/${selectedJob.id}/parts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(partPayload)
@@ -322,30 +323,32 @@ export default function EmployeePortal() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans">
       {/* HEADER MATCHING ADMIN THEME */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="FAZAH Logo" className="h-10 w-10 object-contain" />
-          <div>
-            <h1 className="text-xl font-black tracking-wide text-slate-900 leading-tight">
+      <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap sm:flex-nowrap justify-between items-center sticky top-0 z-30 shadow-sm gap-2">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <img src="/logo.png" alt="FAZAH Logo" className="h-9 w-9 sm:h-10 sm:w-10 object-contain shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-black tracking-wide text-slate-900 leading-tight">
               FAZAH <span className="text-lime-600">AUTO</span> <span className="text-blue-600">STAFF</span>
             </h1>
-            <span className="text-xs text-slate-500 font-semibold">{loggedInEmp.fullName} ({loggedInEmp.employeeCode}) • {loggedInEmp.jobTitle || 'Technician'}</span>
+            <span className="text-2xs sm:text-xs text-slate-500 font-semibold block truncate max-w-[200px] sm:max-w-none">
+              {loggedInEmp.fullName} ({loggedInEmp.employeeCode}) • {loggedInEmp.jobTitle || 'Technician'}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button 
             onClick={() => fetchEmpData(loggedInEmp.id)}
             className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-300 transition-colors"
             title="Refresh Data"
           >
-            <RefreshCw size={18} />
+            <RefreshCw size={16} />
           </button>
           <button 
             onClick={handleLogout} 
-            className="flex items-center gap-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+            className="flex items-center gap-1.5 sm:gap-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all"
           >
-            <LogOut size={16} /> Exit
+            <LogOut size={15} /> Exit
           </button>
         </div>
       </header>
@@ -423,7 +426,7 @@ export default function EmployeePortal() {
         </div>
 
         {/* NAVIGATION TABS */}
-        <div className="flex gap-2 border-b border-slate-200 pb-2">
+        <div className="flex gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar">
           {[
             { id: 'jobcards', label: 'Assigned Job Cards', icon: Wrench, count: jobCards.length },
             { id: 'tasks', label: 'Shop Tasks', icon: CheckSquare, count: tasks.length },
@@ -434,13 +437,13 @@ export default function EmployeePortal() {
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id as any); setSelectedJob(null); }}
-                className={`px-5 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all ${
+                className={`px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shrink-0 ${
                   activeTab === tab.id
                     ? 'bg-blue-600 text-white shadow-md'
                     : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200'
                 }`}
               >
-                <Icon size={18} /> {tab.label} <span className={`px-2 py-0.5 rounded-full text-xs font-mono ${activeTab === tab.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>{tab.count}</span>
+                <Icon size={16} /> {tab.label} <span className={`px-2 py-0.5 rounded-full text-2xs sm:text-xs font-mono ${activeTab === tab.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>{tab.count}</span>
               </button>
             );
           })}

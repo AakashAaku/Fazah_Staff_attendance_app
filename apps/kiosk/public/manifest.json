@@ -1,21 +1,69 @@
 {
+  "id": "/",
+  "name": "Fazah Auto Garage - Staff & Attendance",
   "short_name": "Fazah Garage",
-  "name": "Fazah Auto Garage Staff & Attendance App",
+  "description": "Automotive workshop management, staff attendance kiosk, job cards, vehicle inspections and time tracking.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/logo.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "1024x1024",
+      "purpose": "any"
     },
     {
       "src": "/logo.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "192x192"
     }
   ],
-  "start_url": "/",
-  "background_color": "#f8fafc",
-  "theme_color": "#2563eb",
-  "display": "standalone",
-  "orientation": "any"
+  "shortcuts": [
+    {
+      "name": "Attendance Kiosk",
+      "short_name": "Kiosk",
+      "description": "Quick Entrance Punch Clock",
+      "url": "/kiosk",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Staff Portal",
+      "short_name": "Portal",
+      "description": "Technician job cards and timers",
+      "url": "/portal",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Admin Console",
+      "short_name": "Admin",
+      "description": "Supervisor dashboard & reports",
+      "url": "/admin",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false
 }

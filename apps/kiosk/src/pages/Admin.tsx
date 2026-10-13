@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, MessageSquare, Save, ShieldCheck, RefreshCw, Calendar, Search, ShoppingBag, Edit, Trash2 } from 'lucide-react';
+import { apiFetch } from '../services/api';
 
 export default function Admin() {
   const [token, setToken] = useState(localStorage.getItem('adminToken') || '');
@@ -237,35 +238,35 @@ export default function Admin() {
   const fetchData = async () => {
     try {
       if (activeTab === 'jobcards') {
-        const res = await fetch('/api/job-cards');
+        const res = await apiFetch('/api/job-cards');
         if (res.ok) setJobCards(await res.json());
-        const empRes = await fetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
+        const empRes = await apiFetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
         if (empRes.ok) setEmployees(await empRes.ok ? await empRes.json() : []);
       } else if (activeTab === 'inspections') {
-        const res = await fetch('/api/job-cards/inspections');
+        const res = await apiFetch('/api/job-cards/inspections');
         if (res.ok) setInspections(await res.json());
       } else if (activeTab === 'staff') {
-        const res = await fetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await apiFetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) throw new Error('Unauthorized');
         setEmployees(await res.json());
       } else if (activeTab === 'worklogs') {
-        const res = await fetch(`/api/kiosk/admin/work-timeline?date=${selectedTimelineDate}`);
+        const res = await apiFetch(`/api/kiosk/admin/work-timeline?date=${selectedTimelineDate}`);
         if (res.ok) setWorkTimelines(await res.json());
-        const jcRes = await fetch('/api/job-cards');
+        const jcRes = await apiFetch('/api/job-cards');
         if (jcRes.ok) setJobCards(await jcRes.json());
-        const empRes = await fetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
+        const empRes = await apiFetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
         if (empRes.ok) setEmployees(await empRes.json());
       } else if (activeTab === 'attendance') {
-        const res = await fetch(`/api/kiosk/admin/punches?date=${selectedAttendanceDate}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await apiFetch(`/api/kiosk/admin/punches?date=${selectedAttendanceDate}`, { headers: { 'Authorization': `Bearer ${token}` } });
         if (res.ok) setPunches(await res.json());
       } else if (activeTab === 'reopened') {
-        const res = await fetch(`/api/kiosk/admin/reopened-tasks-report?date=${reopenedReportDate}`);
+        const res = await apiFetch(`/api/kiosk/admin/reopened-tasks-report?date=${reopenedReportDate}`);
         if (res.ok) setReopenedReport(await res.json());
       } else if (activeTab === 'inventory') {
-        const res = await fetch('/api/job-cards/inventory-parts');
+        const res = await apiFetch('/api/job-cards/inventory-parts');
         if (res.ok) setInventoryParts(await res.json());
       } else if (activeTab === 'labor') {
-        const res = await fetch('/api/job-cards/labor-catalog');
+        const res = await apiFetch('/api/job-cards/labor-catalog');
         if (res.ok) setLaborCatalog(await res.json());
       }
     } catch (err) {
@@ -277,7 +278,7 @@ export default function Admin() {
   const handleReopenTaskSubmit = async () => {
     if (!taskToReopen || !reopenReasonInput.trim()) return;
     try {
-      const res = await fetch(`/api/kiosk/admin/tasks/${taskToReopen.id}/reopen`, {
+      const res = await apiFetch(`/api/kiosk/admin/tasks/${taskToReopen.id}/reopen`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: reopenReasonInput.trim() })
@@ -297,7 +298,7 @@ export default function Admin() {
     e.preventDefault();
     setLoginError('');
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -362,7 +363,7 @@ export default function Admin() {
 
   const handleSaveAndConvertInspection = async () => {
     try {
-      const resInsp = await fetch('/api/job-cards/inspections', {
+      const resInsp = await apiFetch('/api/job-cards/inspections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newInspection)
@@ -372,7 +373,7 @@ export default function Admin() {
       const createdInsp = await resInsp.json();
 
       if (createdInsp) {
-        const resConvert = await fetch(`/api/job-cards/inspections/${createdInsp.id}/convert`, {
+        const resConvert = await apiFetch(`/api/job-cards/inspections/${createdInsp.id}/convert`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -394,7 +395,7 @@ export default function Admin() {
 
   const fetchSingleJobCard = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/job-cards/${jobId}`);
+      const res = await apiFetch(`/api/job-cards/${jobId}`);
       if (res.ok) {
         setSelectedJobCard(await res.json());
       }
@@ -409,7 +410,7 @@ export default function Admin() {
       const complaints = erpSyncForm.complaintsText
         ? erpSyncForm.complaintsText.split('\n').filter(Boolean)
         : ['Scheduled Repair Work'];
-      const res = await fetch('/api/job-cards/sync-erp', {
+      const res = await apiFetch('/api/job-cards/sync-erp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -429,7 +430,7 @@ export default function Admin() {
   const handleQaVerifySubmit = async (qaPassed: boolean) => {
     if (!selectedQaLabor) return;
     try {
-      const res = await fetch(`/api/job-cards/labors/${selectedQaLabor.id}/qa-verify`, {
+      const res = await apiFetch(`/api/job-cards/labors/${selectedQaLabor.id}/qa-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -452,7 +453,7 @@ export default function Admin() {
   const handleReopenJobSubmit = async () => {
     if (!selectedJobCard) return;
     try {
-      const res = await fetch(`/api/job-cards/${selectedJobCard.id}/reopen`, {
+      const res = await apiFetch(`/api/job-cards/${selectedJobCard.id}/reopen`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reopenReason: reopenReasonText })
@@ -471,7 +472,7 @@ export default function Admin() {
   const handleCreateFastJobCard = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/job-cards', {
+      const res = await apiFetch('/api/job-cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -495,7 +496,7 @@ export default function Admin() {
 
   const fetchSingleJobDetails = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/job-cards/${jobId}`);
+      const res = await apiFetch(`/api/job-cards/${jobId}`);
       if (res.ok) {
         const data = await res.json();
         setSelectedJobCard(data);
@@ -510,7 +511,7 @@ export default function Admin() {
     if (!selectedJobCard) return;
     setSavingNotes(true);
     try {
-      await fetch(`/api/job-cards/${selectedJobCard.id}/notes`, {
+      await apiFetch(`/api/job-cards/${selectedJobCard.id}/notes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: advisorNotes, advisorName: 'Sales Advisor' })
@@ -528,7 +529,7 @@ export default function Admin() {
     e.preventDefault();
     if (!selectedJobCard) return;
     try {
-      await fetch(`/api/job-cards/${selectedJobCard.id}/parts`, {
+      await apiFetch(`/api/job-cards/${selectedJobCard.id}/parts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -552,7 +553,7 @@ export default function Admin() {
     e.preventDefault();
     if (!selectedJobCard) return;
     try {
-      const res = await fetch(`/api/job-cards/${selectedJobCard.id}/labors`, {
+      const res = await apiFetch(`/api/job-cards/${selectedJobCard.id}/labors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newLaborItem)
@@ -570,7 +571,7 @@ export default function Admin() {
 
   const handleInlineAssignLabor = async (laborId: string, employeeId: string) => {
     try {
-      const res = await fetch(`/api/job-cards/labors/${laborId}/assign`, {
+      const res = await apiFetch(`/api/job-cards/labors/${laborId}/assign`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId })
@@ -587,7 +588,7 @@ export default function Admin() {
   const handleDeleteLabor = async (laborId: string) => {
     if (!confirm('Are you sure you want to remove this labor task?')) return;
     try {
-      const res = await fetch(`/api/job-cards/labors/${laborId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/job-cards/labors/${laborId}`, { method: 'DELETE' });
       if (res.ok) {
         if (selectedJobCard) fetchSingleJobDetails(selectedJobCard.id);
         fetchData();
@@ -601,7 +602,7 @@ export default function Admin() {
     e.preventDefault();
     if (!laborToEdit) return;
     try {
-      const res = await fetch(`/api/job-cards/labors/${laborToEdit.id}`, {
+      const res = await apiFetch(`/api/job-cards/labors/${laborToEdit.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -626,7 +627,7 @@ export default function Admin() {
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/employees', {
+      const res = await apiFetch('/api/employees', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -673,7 +674,7 @@ export default function Admin() {
         bodyPayload.pin = editStaffForm.pin.trim();
       }
 
-      const res = await fetch(`/api/employees/${editingStaff.id}`, {
+      const res = await apiFetch(`/api/employees/${editingStaff.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -768,7 +769,7 @@ export default function Admin() {
     if (!selectedLaborToAssign || !assignTargetEmployee) return;
     setAssigningTask(true);
     try {
-      const res = await fetch(`/api/job-cards/labors/${selectedLaborToAssign}/assign`, {
+      const res = await apiFetch(`/api/job-cards/labors/${selectedLaborToAssign}/assign`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId: assignTargetEmployee.id })
@@ -854,30 +855,30 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans">
       {/* Top Admin Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="FAZAH Logo" className="h-11 w-11 object-contain" />
-          <div>
-            <h1 className="text-xl font-black tracking-wide text-slate-900 leading-tight">
+      <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap sm:flex-nowrap justify-between items-center sticky top-0 z-30 shadow-sm gap-2">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <img src="/logo.png" alt="FAZAH Logo" className="h-9 w-9 sm:h-11 sm:w-11 object-contain shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-black tracking-wide text-slate-900 leading-tight">
               FAZAH <span className="text-lime-600">AUTO</span> <span className="text-blue-600">GARAGE</span>
             </h1>
-            <span className="text-xs text-slate-500 font-semibold">Service Advisor & Manager Console</span>
+            <span className="text-2xs sm:text-xs text-slate-500 font-semibold block truncate">Service Advisor & Manager Console</span>
           </div>
         </div>
 
         <button 
           onClick={handleLogout} 
-          className="flex items-center gap-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+          className="flex items-center gap-1.5 sm:gap-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-300 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0"
         >
-          <LogOut size={16} /> Logout
+          <LogOut size={15} /> Logout
         </button>
       </header>
 
       {/* Main Container */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6">
+      <div className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col gap-4 sm:gap-6">
         
-        {/* Navigation Tabs - Responsive Compact Segmented Control Bar */}
-        <div className="bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300/80 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 shadow-inner">
+        {/* Navigation Tabs - Horizontally scrollable on mobile, 8-column grid on desktop */}
+        <div className="bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300/80 flex overflow-x-auto no-scrollbar md:grid md:grid-cols-8 gap-1.5 shadow-inner">
           {[
             { id: 'jobcards', label: 'Job Cards', icon: Wrench, count: jobCards.length },
             { id: 'inspections', label: 'Inspections', icon: ShieldCheck, count: inspections.length },
@@ -894,7 +895,7 @@ export default function Admin() {
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id as any); setSelectedJobCard(null); }}
-                className={`py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-between gap-1 transition-all w-full ${
+                className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-between gap-1.5 transition-all min-w-[135px] md:min-w-0 shrink-0 ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 ring-1 ring-blue-400'
                     : 'bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200/60 shadow-2xs'

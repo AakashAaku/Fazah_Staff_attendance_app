@@ -1,12 +1,41 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @import "tailwindcss";
 
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
   body {
-    @apply bg-slate-900 text-slate-100 font-sans m-0 p-0 overflow-hidden;
+    @apply bg-slate-900 text-slate-100 font-sans m-0 p-0 min-h-screen overflow-x-hidden;
     font-family: 'Inter', sans-serif;
   }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.8);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Animated gradient background */
@@ -19,6 +48,7 @@
   z-index: -1;
   background: radial-gradient(circle at center, #1e3a8a 0%, #0f172a 40%, #020617 100%);
   animation: slowPulse 20s ease-in-out infinite alternate;
+  pointer-events: none;
 }
 
 @keyframes slowPulse {
@@ -27,9 +57,15 @@
 }
 
 .glass-panel {
-  @apply bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl;
+  @apply bg-slate-800/60 backdrop-blur-xl border border-slate-700/60 rounded-3xl shadow-2xl;
 }
 
-.keypad-btn {
-  @apply w-20 h-20 text-3xl font-light rounded-full bg-slate-700/50 hover:bg-indigo-500/80 active:bg-indigo-600 active:scale-95 transition-all duration-200 border border-slate-600/50 shadow flex items-center justify-center;
+/* Safe area padding for standalone PWA on mobile phones with home indicators/notches */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-p-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-p-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
