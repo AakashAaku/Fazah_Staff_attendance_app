@@ -10,6 +10,23 @@ try {
   if (!process.env.DATABASE_URL && fs.existsSync(path.join(__dirname, 'apps', 'api', '.env'))) {
     require('dotenv').config({ path: path.join(__dirname, 'apps', 'api', '.env') });
   }
+  // Fallback: If .env contains a raw connection string without "DATABASE_URL="
+  if (!process.env.DATABASE_URL) {
+    const envPaths = [path.join(__dirname, '.env'), path.join(__dirname, 'apps', 'api', '.env')];
+    for (const ep of envPaths) {
+      if (fs.existsSync(ep)) {
+        const lines = fs.readFileSync(ep, 'utf8').split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim().replace(/^['"]|['"]$/g, '');
+          if (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) {
+            process.env.DATABASE_URL = trimmed;
+            break;
+          }
+        }
+      }
+      if (process.env.DATABASE_URL) break;
+    }
+  }
 } catch (_) {}
 
 async function seed() {
@@ -36,12 +53,22 @@ async function seed() {
         ssl: isSsl ? { rejectUnauthorized: false } : false,
       };
 
-  console.log(`Connecting to database at ${databaseUrl ? 'DATABASE_URL' : `${clientConfig.host}:${clientConfig.port}/${clientConfig.database}`}...`);
+  let targetDisplay = 'localhost:5432/garageclock';
+  if (databaseUrl) {
+    try {
+      const parsed = new URL(databaseUrl.replace(/^postgres:/, 'http:').replace(/^postgresql:/, 'http:'));
+      targetDisplay = `${parsed.hostname} (${parsed.pathname.replace(/^\//, '') || 'default'})`;
+    } catch {
+      targetDisplay = 'Remote Cloud Database (DATABASE_URL)';
+    }
+  }
+
+  console.log(`Connecting to database at ${targetDisplay}...`);
   const client = new Client(clientConfig);
 
   try {
     await client.connect();
-    console.log('✅ Connected to PostgreSQL successfully!');
+    console.log(`✅ Connected to PostgreSQL successfully! [Host: ${targetDisplay}]`);
 
     const TENANT_ID = '11111111-1111-1111-1111-111111111111';
     const BRANCH_ID = '22222222-2222-2222-2222-222222222222';
