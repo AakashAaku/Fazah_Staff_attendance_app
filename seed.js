@@ -1,6 +1,16 @@
 const { Client } = require('pg');
 const { randomBytes } = require('crypto');
 const { argon2id } = require('hash-wasm');
+const path = require('path');
+const fs = require('fs');
+
+// Automatically load .env from project root or apps/api/.env
+try {
+  require('dotenv').config();
+  if (!process.env.DATABASE_URL && fs.existsSync(path.join(__dirname, 'apps', 'api', '.env'))) {
+    require('dotenv').config({ path: path.join(__dirname, 'apps', 'api', '.env') });
+  }
+} catch (_) {}
 
 async function seed() {
   const databaseUrl = 
