@@ -4,6 +4,14 @@
   command = "npm run build --workspace=apps/kiosk"
   publish = "apps/kiosk/dist"
 
+# Disable Netlify Drawer (Feedback widget / Netlify badge)
+[context.deploy-preview.environment]
+  NETLIFY_DRAWER_ENABLED = "false"
+
+[context.branch-deploy.environment]
+  NETLIFY_DRAWER_ENABLED = "false"
+
+
 # Client-side routing for Single Page Application (SPA)
 [[redirects]]
   from = "/*"

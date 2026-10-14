@@ -3,15 +3,21 @@ import { config } from 'dotenv';
 
 config(); // Load .env for CLI and local runs
 
-const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const databaseUrl = 
+  process.env.DATABASE_URL || 
+  process.env.NEON_DATABASE_URL || 
+  process.env.NETLIFY_NEON_DATABASE_URL ||
+  process.env.POSTGRES_URL;
+
+const hasDatabaseUrl = Boolean(databaseUrl);
 const isSslEnabled = 
   process.env.DB_SSL === 'true' || 
-  (hasDatabaseUrl && !process.env.DATABASE_URL?.includes('localhost'));
+  (hasDatabaseUrl && !databaseUrl?.includes('localhost'));
 
 export const dataSourceOptions: DataSourceOptions = hasDatabaseUrl
   ? {
       type: 'postgres',
-      url: process.env.DATABASE_URL,
+      url: databaseUrl,
       ssl: isSslEnabled ? { rejectUnauthorized: false } : false,
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       migrations: [__dirname + '/migrations/*{.ts,.js}'],

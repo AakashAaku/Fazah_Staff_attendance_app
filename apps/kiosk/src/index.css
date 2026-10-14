@@ -69,3 +69,27 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* Completely remove any Netlify badge, drawer, feedback widget or footer */
+#netlify-drawer,
+[data-netlify-drawer],
+netlify-drawer,
+#netlify-badge,
+.netlify-badge,
+iframe#netlify-drawer-iframe,
+div[class*="netlify-drawer"],
+div[id*="netlify-drawer"],
+div[class*="netlify-badge"],
+div[id*="netlify-badge"],
+a[href*="netlify.com"] img,
+div:has(> a[href*="netlify.com"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  position: absolute !important;
+  z-index: -9999 !important;
+}
+

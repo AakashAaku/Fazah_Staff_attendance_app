@@ -3,7 +3,11 @@ const { randomBytes } = require('crypto');
 const { argon2id } = require('hash-wasm');
 
 async function seed() {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = 
+    process.env.DATABASE_URL || 
+    process.env.NEON_DATABASE_URL || 
+    process.env.NETLIFY_NEON_DATABASE_URL ||
+    process.env.POSTGRES_URL;
   const isSsl = 
     process.env.DB_SSL === 'true' || 
     (databaseUrl && !databaseUrl.includes('localhost'));
