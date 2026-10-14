@@ -14,5 +14,8 @@
     "build:all": "npm run build --workspaces --if-present",
     "seed": "node seed.js",
     "start": "npm run start:prod -w apps/api"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.7"
   }
 }

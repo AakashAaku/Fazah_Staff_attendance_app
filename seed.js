@@ -174,40 +174,40 @@ async function seed() {
 
     // 7. Seed Inventory Parts Stock
     const partsList = [
-      { partNumber: 'ENG-OIL-5W30', name: 'Castrol Edge 5W30 Synthetic Oil (1L)', qty: 120, unitPrice: 45, cost: 30, category: 'Fluids' },
-      { partNumber: 'OIL-FLT-TY', name: 'Genuine Toyota OEM Oil Filter', qty: 45, unitPrice: 35, cost: 20, category: 'Filters' },
-      { partNumber: 'BRK-PAD-FR', name: 'Ceramic Front Brake Pads Set', qty: 18, unitPrice: 180, cost: 110, category: 'Brakes' },
-      { partNumber: 'AC-GAS-R134', name: 'R134a AC Refrigerant Gas Canister', qty: 30, unitPrice: 85, cost: 45, category: 'AC & Cooling' },
-      { partNumber: 'SPK-PLG-IR', name: 'NGK Iridium Spark Plugs Set of 4', qty: 25, unitPrice: 140, cost: 80, category: 'Ignition' },
+      { partNumber: 'ENG-OIL-5W30', name: 'Castrol Edge 5W30 Synthetic Oil (1L)', qty: 120, unitPrice: 45, unitCost: 30, category: 'Oils & Fluids' },
+      { partNumber: 'OIL-FLT-TY', name: 'Genuine Toyota OEM Oil Filter', qty: 45, unitPrice: 35, unitCost: 20, category: 'Filters' },
+      { partNumber: 'BRK-PAD-FR', name: 'Ceramic Front Brake Pads Set', qty: 18, unitPrice: 180, unitCost: 110, category: 'Brakes' },
+      { partNumber: 'AC-GAS-R134', name: 'R134a AC Refrigerant Gas Canister', qty: 30, unitPrice: 85, unitCost: 45, category: 'Electrical' },
+      { partNumber: 'SPK-PLG-IR', name: 'NGK Iridium Spark Plugs Set of 4', qty: 25, unitPrice: 140, unitCost: 80, category: 'Engine' },
     ];
 
     for (const part of partsList) {
-      const resPart = await client.query('SELECT id FROM inventory_parts WHERE part_number = $1', [part.partNumber]);
+      const resPart = await client.query('SELECT id FROM inventory_parts WHERE part_number = $1 AND tenant_id = $2', [part.partNumber, TENANT_ID]);
       if (resPart.rows.length === 0) {
         await client.query(`
-          INSERT INTO inventory_parts (id, part_number, name, category, stock_quantity, unit_price, cost_price, minimum_stock, location, "created_at", "updated_at")
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, 5, 'Bay Shelf A1', NOW(), NOW())
-        `, [part.partNumber, part.name, part.category, part.qty, part.unitPrice, part.cost]);
+          INSERT INTO inventory_parts (id, tenant_id, part_number, name, category, stock_quantity, unit_price, unit_cost, location, "created_at", "updated_at")
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'Bay Shelf A1', NOW(), NOW())
+        `, [TENANT_ID, part.partNumber, part.name, part.category, part.qty, part.unitPrice, part.unitCost]);
       }
     }
     console.log('✅ Seeded 5 common inventory stock parts.');
 
     // 8. Seed Labor Catalog
     const laborsList = [
-      { code: 'LBR-OIL', name: 'Engine Oil & Filter Service', section: 'Mechanical', hours: 1.0, rate: 120 },
-      { code: 'LBR-BRK', name: 'Front Brake Pads Replacement', section: 'Mechanical', hours: 1.5, rate: 120 },
-      { code: 'LBR-AC', name: 'Full AC System Evac & Recharge', section: 'Electrical', hours: 2.0, rate: 150 },
-      { code: 'LBR-DNP', name: 'Front Bumper Scratch & Dent Repair', section: 'Denting & Painting', hours: 3.5, rate: 140 },
-      { code: 'LBR-DIAG', name: 'OBD-II Computer Diagnostic & Reset', section: 'Electrical', hours: 0.8, rate: 150 },
+      { name: 'Engine Oil & Filter Service', section: 'Mechanical', hours: 1.0, rate: 120 },
+      { name: 'Front Brake Pads Replacement', section: 'Mechanical', hours: 1.5, rate: 120 },
+      { name: 'Full AC System Evac & Recharge', section: 'Electrical', hours: 2.0, rate: 150 },
+      { name: 'Front Bumper Scratch & Dent Repair', section: 'Denting', hours: 3.5, rate: 140 },
+      { name: 'OBD-II Computer Diagnostic & Reset', section: 'Electrical', hours: 0.8, rate: 150 },
     ];
 
     for (const lbr of laborsList) {
-      const resLbr = await client.query('SELECT id FROM labor_catalog WHERE code = $1', [lbr.code]);
+      const resLbr = await client.query('SELECT id FROM labor_catalog WHERE name = $1 AND tenant_id = $2', [lbr.name, TENANT_ID]);
       if (resLbr.rows.length === 0) {
         await client.query(`
-          INSERT INTO labor_catalog (id, code, name, section, estimated_hours, hourly_rate, "created_at", "updated_at")
-          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
-        `, [lbr.code, lbr.name, lbr.section, lbr.hours, lbr.rate]);
+          INSERT INTO labor_catalog (id, tenant_id, name, section, standard_hours, standard_rate, "created_at")
+          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())
+        `, [TENANT_ID, lbr.name, lbr.section, lbr.hours, lbr.rate]);
       }
     }
     console.log('✅ Seeded 5 standard labor catalog operations.');
