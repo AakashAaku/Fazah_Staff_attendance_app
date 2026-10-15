@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Req, UseGuards, Ip, Headers, Param, Query, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Req, UseGuards, Ip, Headers, Param, Query, UnauthorizedException } from '@nestjs/common';
 import { PunchesService } from './punches.service';
 import { KioskPunchDto, MobilePunchDto } from './dto/punch.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -128,5 +128,11 @@ export class PunchesController {
   async getReopenedReport(@Query('date') date?: string) {
     const tenantId = '11111111-1111-1111-1111-111111111111';
     return this.tasksService.getReopenedReport(tenantId, date);
+  }
+
+  @Delete('admin/punches/:id')
+  async deletePunch(@Param('id') id: string) {
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    return this.punchesService.deletePunch(tenantId, id);
   }
 }

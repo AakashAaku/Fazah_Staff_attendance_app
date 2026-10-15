@@ -346,4 +346,12 @@ export class PunchesService {
       };
     });
   }
+
+  async deletePunch(tenantId: string, punchId: string) {
+    const punch = await this.punchRepo.findOne({ where: { id: punchId, tenantId } });
+    if (!punch) throw new NotFoundException('Punch record not found');
+    await this.punchRepo.remove(punch);
+    return { success: true, message: 'Punch record deleted successfully.' };
+  }
 }
+

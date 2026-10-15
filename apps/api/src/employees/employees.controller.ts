@@ -22,6 +22,12 @@ export class EmployeesController {
     return this.employeesService.findAll(req.user.tenantId);
   }
 
+  @Post('clear-defaults')
+  @Roles('admin', 'super_admin')
+  clearDefaults(@Request() req: any) {
+    return this.employeesService.clearDefaults(req.user.tenantId);
+  }
+
   @Get(':id')
   @Roles('admin', 'super_admin', 'auditor')
   findOne(@Request() req: any, @Param('id') id: string) {

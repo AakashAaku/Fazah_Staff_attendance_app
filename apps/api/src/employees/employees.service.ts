@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { argon2id } from 'hash-wasm';
 import { randomBytes } from 'crypto';
 import { Employee } from './entities/employee.entity';
@@ -17,6 +17,7 @@ export class EmployeesService {
     private credentialRepo: Repository<EmployeeCredential>,
     @InjectRepository(Branch)
     private branchRepo: Repository<Branch>,
+    private dataSource: DataSource,
   ) {}
 
   async create(tenantId: string, dto: CreateEmployeeDto) {
@@ -125,8 +126,44 @@ export class EmployeesService {
 
   async remove(tenantId: string, id: string) {
     const employee = await this.findOne(tenantId, id);
-    employee.status = 'terminated';
-    return this.employeeRepo.save(employee);
+    const empId = employee.id;
+
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Unlink foreign keys from records that should remain intact
+      await manager.query(`UPDATE job_cards SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_card_labors SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_card_labors SET qa_verified_by_id = NULL WHERE qa_verified_by_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_card_logs SET employee_id = NULL WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_card_handovers SET handed_over_by_id = NULL WHERE handed_over_by_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_card_handovers SET received_by_id = NULL WHERE received_by_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE devices SET employee_id = NULL WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE employees SET supervisor_id = NULL WHERE supervisor_id = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE tasks SET assigned_to = NULL WHERE assigned_to = $1`, [empId]).catch(() => {});
+
+      // 2. Delete employee specific credentials and logs
+      await manager.query(`DELETE FROM employee_credentials WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM shift_assignments WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM work_sessions WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM daily_summaries WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM time_adjustments WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM task_logs WHERE employee_id = $1`, [empId]).catch(() => {});
+      await manager.query(`DELETE FROM punches WHERE "employeeId" = $1`, [empId]).catch(() => {});
+
+      // 3. Delete the employee
+      await manager.query(`DELETE FROM employees WHERE id = $1 AND tenant_id = $2`, [empId, tenantId]);
+    });
+
+    return { success: true, message: `Staff member ${employee.fullName} (${employee.employeeCode}) was permanently deleted.` };
+  }
+
+  async clearDefaults(tenantId: string) {
+    const defaultCodes = ['ADMIN01', 'MCH01', 'ELE01', 'DNP01', 'ADV01', 'MGR01'];
+    const all = await this.employeeRepo.find({ where: { tenantId } });
+    const targets = all.filter(e => defaultCodes.includes(e.employeeCode));
+    for (const emp of targets) {
+      await this.remove(tenantId, emp.id);
+    }
+    return { success: true, count: targets.length, message: `Cleared ${targets.length} default staff members.` };
   }
 
   async findByCode(tenantId: string, employeeCode: string) {

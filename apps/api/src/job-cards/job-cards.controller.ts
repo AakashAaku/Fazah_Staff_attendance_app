@@ -15,9 +15,39 @@ export class JobCardsController {
     return this.service.getInventoryParts();
   }
 
+  @Post('inventory-parts')
+  async createInventoryPart(@Body() body: any) {
+    return this.service.createInventoryPart(body);
+  }
+
+  @Patch('inventory-parts/:id')
+  async updateInventoryPart(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateInventoryPart(id, body);
+  }
+
+  @Delete('inventory-parts/:id')
+  async deleteInventoryPart(@Param('id') id: string) {
+    return this.service.deleteInventoryPart(id);
+  }
+
   @Get('labor-catalog')
   async getLaborCatalog() {
     return this.service.getLaborCatalog();
+  }
+
+  @Post('labor-catalog')
+  async createLaborCatalog(@Body() body: any) {
+    return this.service.createLaborCatalog(body);
+  }
+
+  @Patch('labor-catalog/:id')
+  async updateLaborCatalog(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateLaborCatalog(id, body);
+  }
+
+  @Delete('labor-catalog/:id')
+  async deleteLaborCatalog(@Param('id') id: string) {
+    return this.service.deleteLaborCatalog(id);
   }
 
   // --- INSPECTION ENDPOINTS --- //
@@ -37,6 +67,11 @@ export class JobCardsController {
     return this.service.findInspection(id);
   }
 
+  @Delete('inspections/:id')
+  async deleteInspection(@Param('id') id: string) {
+    return this.service.deleteInspection(id);
+  }
+
   @Post('inspections/:id/convert')
   async convertInspectionToJobCard(@Param('id') id: string, @Body() body: { assignedMechanicId?: string; assignedSection?: string }) {
     return this.service.convertInspectionToJobCard(id, body.assignedMechanicId, body.assignedSection);
@@ -52,6 +87,11 @@ export class JobCardsController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.service.findOne(id);
+  }
+
+  @Delete(':id')
+  async deleteJobCard(@Param('id') id: string) {
+    return this.service.deleteJobCard(id);
   }
 
   @Post()

@@ -439,8 +439,90 @@ export class JobCardsService implements OnModuleInit {
     return this.inventoryRepo.find({ order: { name: 'ASC' } });
   }
 
+  async createInventoryPart(dto: any) {
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    const part = this.inventoryRepo.create({
+      tenantId,
+      partNumber: dto.partNumber,
+      name: dto.name,
+      category: dto.category || 'General',
+      stockQuantity: Number(dto.stockQuantity) || 0,
+      unitPrice: Number(dto.unitPrice) || 0,
+      unitCost: Number(dto.unitCost) || 0,
+      location: dto.location || 'Shelf A',
+    });
+    return this.inventoryRepo.save(part);
+  }
+
+  async updateInventoryPart(id: string, dto: any) {
+    const part = await this.inventoryRepo.findOne({ where: { id } });
+    if (!part) throw new NotFoundException('Inventory part not found');
+    if (dto.partNumber !== undefined) part.partNumber = dto.partNumber;
+    if (dto.name !== undefined) part.name = dto.name;
+    if (dto.category !== undefined) part.category = dto.category;
+    if (dto.stockQuantity !== undefined) part.stockQuantity = Number(dto.stockQuantity);
+    if (dto.unitPrice !== undefined) part.unitPrice = Number(dto.unitPrice);
+    if (dto.unitCost !== undefined) part.unitCost = Number(dto.unitCost);
+    if (dto.location !== undefined) part.location = dto.location;
+    return this.inventoryRepo.save(part);
+  }
+
+  async deleteInventoryPart(id: string) {
+    const part = await this.inventoryRepo.findOne({ where: { id } });
+    if (!part) throw new NotFoundException('Inventory part not found');
+    await this.inventoryRepo.remove(part);
+    return { success: true, message: 'Part deleted successfully' };
+  }
+
   async getLaborCatalog() {
     return this.laborCatalogRepo.find({ order: { name: 'ASC' } });
+  }
+
+  async createLaborCatalog(dto: any) {
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    const labor = this.laborCatalogRepo.create({
+      tenantId,
+      name: dto.name,
+      section: dto.section || 'Mechanical',
+      standardHours: Number(dto.standardHours) || 1,
+      standardRate: Number(dto.standardRate) || 100,
+    });
+    return this.laborCatalogRepo.save(labor);
+  }
+
+  async updateLaborCatalog(id: string, dto: any) {
+    const labor = await this.laborCatalogRepo.findOne({ where: { id } });
+    if (!labor) throw new NotFoundException('Labor operation not found');
+    if (dto.name !== undefined) labor.name = dto.name;
+    if (dto.section !== undefined) labor.section = dto.section;
+    if (dto.standardHours !== undefined) labor.standardHours = Number(dto.standardHours);
+    if (dto.standardRate !== undefined) labor.standardRate = Number(dto.standardRate);
+    return this.laborCatalogRepo.save(labor);
+  }
+
+  async deleteLaborCatalog(id: string) {
+    const labor = await this.laborCatalogRepo.findOne({ where: { id } });
+    if (!labor) throw new NotFoundException('Labor operation not found');
+    await this.laborCatalogRepo.remove(labor);
+    return { success: true, message: 'Labor operation deleted successfully' };
+  }
+
+  async deleteJobCard(id: string) {
+    const card = await this.jobCardRepo.findOne({ where: { id } });
+    if (!card) throw new NotFoundException('Job Card not found');
+    await this.partRepo.delete({ jobCardId: id });
+    await this.laborRepo.delete({ jobCardId: id });
+    await this.logRepo.delete({ jobCardId: id });
+    await this.handoverRepo.delete({ jobCardId: id });
+    await this.jobCardRepo.remove(card);
+    return { success: true, message: `Job Card ${card.jobNumber} was deleted successfully.` };
+  }
+
+  async deleteInspection(id: string) {
+    const insp = await this.inspectionRepo.findOne({ where: { id } });
+    if (!insp) throw new NotFoundException('Inspection certificate not found');
+    await this.inspectionRepo.remove(insp);
+    return { success: true, message: 'Inspection certificate deleted successfully' };
   }
 
   // --- ERP SYNC & MULTI-DEPARTMENT WORKFLOW METHODS --- //

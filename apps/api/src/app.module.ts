@@ -19,6 +19,7 @@ import { TimesheetModule } from './timesheet/timesheet.module';
 import { QrModule } from './qr/qr.module';
 import { TasksModule } from './tasks/tasks.module';
 import { JobCardsModule } from './job-cards/job-cards.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { JobCardsModule } from './job-cards/job-cards.module';
       rootPath: join(__dirname, '..', '..', 'kiosk', 'dist'),
     }),
     AuthModule,
+    UsersModule,
     EmployeesModule,
     DevicesModule,
     PunchesModule,

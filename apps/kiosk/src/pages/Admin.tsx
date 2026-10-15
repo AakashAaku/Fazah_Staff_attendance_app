@@ -8,14 +8,24 @@ export default function Admin() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'jobcards' | 'inspections' | 'staff' | 'worklogs' | 'attendance' | 'inventory' | 'labor' | 'reopened'>('jobcards');
+  const [activeTab, setActiveTab] = useState<'jobcards' | 'inspections' | 'staff' | 'users' | 'worklogs' | 'attendance' | 'inventory' | 'labor' | 'reopened'>('jobcards');
   const [employees, setEmployees] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [punches, setPunches] = useState<any[]>([]);
   const [jobCards, setJobCards] = useState<any[]>([]);
   const [inspections, setInspections] = useState<any[]>([]);
   const [inventoryParts, setInventoryParts] = useState<any[]>([]);
   const [laborCatalog, setLaborCatalog] = useState<any[]>([]);
   const [selectedJobCard, setSelectedJobCard] = useState<any>(null);
+
+  // UNIVERSAL DELETE CONFIRMATION MODAL STATE
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    onConfirm: () => Promise<void> | void;
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
   // JOB CARD MULTI-FILTERS STATE
   const [jobSearchQuery, setJobSearchQuery] = useState<string>('');
@@ -214,6 +224,53 @@ export default function Admin() {
     pin: '',
   });
 
+  // Admin User Accounts Modal State
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'admin' });
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editUserForm, setEditUserForm] = useState({ email: '', role: 'admin', status: 'active', password: '' });
+
+  // Inventory Parts Master CRUD Modal State
+  const [showAddPartMasterModal, setShowAddPartMasterModal] = useState(false);
+  const [newPart, setNewPart] = useState({
+    partNumber: '',
+    name: '',
+    category: 'Oils & Fluids',
+    stockQuantity: 10,
+    unitPrice: 50,
+    unitCost: 30,
+    location: 'Bay Shelf A1'
+  });
+  const [showEditPartMasterModal, setShowEditPartMasterModal] = useState(false);
+  const [editingPart, setEditingPart] = useState<any>(null);
+  const [editPartForm, setEditPartForm] = useState({
+    partNumber: '',
+    name: '',
+    category: 'General',
+    stockQuantity: 0,
+    unitPrice: 0,
+    unitCost: 0,
+    location: ''
+  });
+
+  // Labor Catalog Master CRUD Modal State
+  const [showAddLaborMasterModal, setShowAddLaborMasterModal] = useState(false);
+  const [newLabor, setNewLabor] = useState({
+    name: '',
+    section: 'Mechanical',
+    standardHours: 1.0,
+    standardRate: 120
+  });
+  const [showEditLaborMasterModal, setShowEditLaborMasterModal] = useState(false);
+  const [editingLabor, setEditingLabor] = useState<any>(null);
+  const [editLaborForm, setEditLaborForm] = useState({
+    name: '',
+    section: 'Mechanical',
+    standardHours: 1.0,
+    standardRate: 120
+  });
+
   const CAR_MAKES = ['Toyota', 'Nissan', 'Honda', 'Lexus', 'Ford', 'Hyundai', 'Kia', 'Mercedes', 'BMW', 'Audi', 'Chevrolet', 'Mitsubishi'];
   const SECTIONS = ['Mechanical', 'Denting & Painting', 'Electrical', 'Tinting', 'Floor Cleaning', 'Service Advisor', 'Sales Advisor', 'Accountant'];
   const JOB_TITLES = ['Mechanic', 'Electrician', 'Denting & Painting Technician', 'Tinter', 'Floor Cleaner', 'Service Advisor', 'Sales Advisor', 'Accountant', 'Parts Specialist', 'Workshop Manager'];
@@ -249,6 +306,9 @@ export default function Admin() {
         const res = await apiFetch('/api/employees', { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) throw new Error('Unauthorized');
         setEmployees(await res.json());
+      } else if (activeTab === 'users') {
+        const res = await apiFetch('/api/users', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) setUsers(await res.json());
       } else if (activeTab === 'worklogs') {
         const res = await apiFetch(`/api/kiosk/admin/work-timeline?date=${selectedTimelineDate}`);
         if (res.ok) setWorkTimelines(await res.json());
@@ -268,6 +328,14 @@ export default function Admin() {
       } else if (activeTab === 'labor') {
         const res = await apiFetch('/api/job-cards/labor-catalog');
         if (res.ok) setLaborCatalog(await res.json());
+      }
+
+      // Sync users badge count
+      if (activeTab !== 'users') {
+        apiFetch('/api/users', { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : [])
+          .then(d => { if (Array.isArray(d)) setUsers(d); })
+          .catch(() => {});
       }
     } catch (err) {
       console.error('Failed to fetch data', err);
@@ -695,6 +763,409 @@ export default function Admin() {
     }
   };
 
+  // STAFF DELETION & DEFAULT STAFF CLEARING HANDLERS
+  const handleDeleteStaff = (emp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Staff Member',
+      message: `Are you sure you want to permanently delete staff member "${emp.fullName}" (Code: ${emp.employeeCode})? This will delete their PIN credentials and unassign them from any active jobs.`,
+      confirmText: 'Delete Staff',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/employees/${emp.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          } else {
+            const err = await res.json();
+            alert(err.message || 'Failed to delete staff member');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Network error while deleting staff member');
+        }
+      }
+    });
+  };
+
+  const handleClearDefaultStaff = () => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Clear All Default Demo Staff',
+      message: 'Are you sure you want to clear all sample/default staff members (ADMIN01, MCH01, ELE01, DNP01, ADV01, MGR01)? This will remove demo staff so you can add real staff data.',
+      confirmText: 'Clear Demo Staff',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch('/api/employees/clear-defaults', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            alert(result.message || 'Default staff cleared successfully.');
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          } else {
+            const err = await res.json();
+            alert(err.message || 'Failed to clear default staff');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Error clearing default staff');
+        }
+      }
+    });
+  };
+
+  // ADMIN USERS (USER ACCOUNTS) CRUD HANDLERS
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newUser)
+      });
+      if (res.ok) {
+        setShowAddUserModal(false);
+        setNewUser({ email: '', password: '', role: 'admin' });
+        fetchData();
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Failed to create admin user');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openEditUserModal = (u: any) => {
+    setEditingUser(u);
+    setEditUserForm({
+      email: u.email || '',
+      role: u.role || 'admin',
+      status: u.status || 'active',
+      password: '',
+    });
+    setShowEditUserModal(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      const payload: any = {
+        email: editUserForm.email,
+        role: editUserForm.role,
+        status: editUserForm.status,
+      };
+      if (editUserForm.password && editUserForm.password.trim().length >= 6) {
+        payload.password = editUserForm.password.trim();
+      }
+      const res = await apiFetch(`/api/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setShowEditUserModal(false);
+        setEditingUser(null);
+        fetchData();
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Failed to update user');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteUser = (u: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Admin User Account',
+      message: `Are you sure you want to permanently delete the admin user "${u.email}"?`,
+      confirmText: 'Delete User Account',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/users/${u.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          } else {
+            const err = await res.json();
+            alert(err.message || 'Failed to delete user account');
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  const handleClearDefaultUsers = () => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Clear Default Demo Admin Accounts',
+      message: 'This will remove the default demo accounts (admin@fazahgarage.com and admin@garage.com). Make sure you have created your own real admin account and are logged in with it first!',
+      confirmText: 'Clear Default Accounts',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch('/api/users/clear-defaults', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            alert(result.message || 'Default user accounts cleared successfully.');
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          } else {
+            const err = await res.json();
+            alert(err.message || 'Failed to clear default accounts');
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  // INVENTORY PARTS CRUD HANDLERS
+  const handleAddPart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/job-cards/inventory-parts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPart)
+      });
+      if (res.ok) {
+        setShowAddPartMasterModal(false);
+        setNewPart({
+          partNumber: '',
+          name: '',
+          category: 'Oils & Fluids',
+          stockQuantity: 10,
+          unitPrice: 50,
+          unitCost: 30,
+          location: 'Bay Shelf A1'
+        });
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openEditPartModal = (part: any) => {
+    setEditingPart(part);
+    setEditPartForm({
+      partNumber: part.partNumber || '',
+      name: part.name || '',
+      category: part.category || 'General',
+      stockQuantity: part.stockQuantity || 0,
+      unitPrice: part.unitPrice || 0,
+      unitCost: part.unitCost || 0,
+      location: part.location || ''
+    });
+    setShowEditPartMasterModal(true);
+  };
+
+  const handleUpdatePart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPart) return;
+    try {
+      const res = await apiFetch(`/api/job-cards/inventory-parts/${editingPart.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editPartForm)
+      });
+      if (res.ok) {
+        setShowEditPartMasterModal(false);
+        setEditingPart(null);
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeletePart = (part: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Spare Part',
+      message: `Are you sure you want to delete "${part.name}" (Part #: ${part.partNumber}) from inventory?`,
+      confirmText: 'Delete Part',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/job-cards/inventory-parts/${part.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  // LABOR CATALOG CRUD HANDLERS
+  const handleAddLabor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/job-cards/labor-catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newLabor)
+      });
+      if (res.ok) {
+        setShowAddLaborMasterModal(false);
+        setNewLabor({ name: '', section: 'Mechanical', standardHours: 1.0, standardRate: 120 });
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openEditLaborModal = (labor: any) => {
+    setEditingLabor(labor);
+    setEditLaborForm({
+      name: labor.name || '',
+      section: labor.section || 'Mechanical',
+      standardHours: labor.standardHours || 1.0,
+      standardRate: labor.standardRate || 100
+    });
+    setShowEditLaborMasterModal(true);
+  };
+
+  const handleUpdateLabor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLabor) return;
+    try {
+      const res = await apiFetch(`/api/job-cards/labor-catalog/${editingLabor.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editLaborForm)
+      });
+      if (res.ok) {
+        setShowEditLaborMasterModal(false);
+        setEditingLabor(null);
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteLaborCatalogItem = (labor: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Labor Operation',
+      message: `Are you sure you want to delete labor operation "${labor.name}" (${labor.section})?`,
+      confirmText: 'Delete Labor',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/job-cards/labor-catalog/${labor.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  // JOB CARD, INSPECTION & PUNCH DELETE HANDLERS
+  const handleDeleteJobCard = (card: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Job Card',
+      message: `Are you sure you want to permanently delete Job Card "${card.jobNumber}" (${card.vehiclePlateNumber})? All associated labors, parts, and logs will be removed.`,
+      confirmText: 'Delete Job Card',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/job-cards/${card.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            if (selectedJobCard?.id === card.id) {
+              setSelectedJobCard(null);
+            }
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  const handleDeleteInspection = (insp: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Inspection Certificate',
+      message: `Are you sure you want to delete Inspection Certificate "${insp.inspectionNumber}" for vehicle "${insp.vehiclePlateNumber}"?`,
+      confirmText: 'Delete Certificate',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/job-cards/inspections/${insp.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
+  const handleDeletePunch = (punch: any) => {
+    setDeleteModal({
+      isOpen: true,
+      title: 'Delete Attendance Punch',
+      message: `Are you sure you want to delete this punch record for ${punch.employee?.fullName || 'Technician'} (${punch.type} at ${new Date(punch.serverTs).toLocaleTimeString()})?`,
+      confirmText: 'Delete Punch Record',
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch(`/api/kiosk/admin/punches/${punch.id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setDeleteModal(prev => ({ ...prev, isOpen: false }));
+            fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    });
+  };
+
   // JOB CARDS ADVANCED FILTERING
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -877,13 +1348,14 @@ export default function Admin() {
       {/* Main Container */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col gap-4 sm:gap-6">
         
-        {/* Navigation Tabs - Horizontally scrollable on mobile, 8-column grid on desktop */}
-        <div className="bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300/80 flex overflow-x-auto no-scrollbar md:grid md:grid-cols-8 gap-1.5 shadow-inner">
+        {/* Navigation Tabs - Horizontally scrollable on mobile, 9-column grid on desktop */}
+        <div className="bg-slate-200/80 p-1.5 rounded-2xl border border-slate-300/80 flex overflow-x-auto no-scrollbar md:grid md:grid-cols-9 gap-1.5 shadow-inner">
           {[
             { id: 'jobcards', label: 'Job Cards', icon: Wrench, count: jobCards.length },
             { id: 'inspections', label: 'Inspections', icon: ShieldCheck, count: inspections.length },
             { id: 'worklogs', label: 'Work & Free Staff', icon: Clock, count: workTimelines.length },
             { id: 'staff', label: 'Staff Roster', icon: Users, count: employees.length },
+            { id: 'users', label: 'Admin Users', icon: ShieldCheck, count: users.length },
             { id: 'attendance', label: 'Attendance', icon: Clock, count: punches.length },
             { id: 'reopened', label: 'Reopens', icon: RefreshCw, count: reopenedReport.length },
             { id: 'inventory', label: 'Parts Stock', icon: Package, count: inventoryParts.length },
@@ -1150,13 +1622,23 @@ export default function Admin() {
 
                     <div className="flex justify-between items-center pt-3 border-t border-slate-200 text-xs">
                       <span className="font-mono font-bold text-slate-900 text-sm">{job.grandTotal || 0} AED</span>
-                      <button
-                        type="button"
-                        onClick={() => fetchSingleJobDetails(job.id)}
-                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-1 shadow-sm transition-transform active:scale-95"
-                      >
-                        Manage & Details ➔
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteJobCard(job); }}
+                          className="px-2.5 py-1.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-300 rounded-xl font-bold flex items-center gap-1 transition-all"
+                          title="Delete Job Card"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fetchSingleJobDetails(job.id)}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-1 shadow-sm transition-transform active:scale-95"
+                        >
+                          Manage & Details ➔
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1206,6 +1688,14 @@ export default function Admin() {
                   className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl flex items-center gap-1.5 border border-slate-300 transition-all"
                 >
                   <Printer size={15} /> Print Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteJobCard(selectedJobCard)}
+                  className="px-3.5 py-2 bg-white hover:bg-red-50 text-red-600 border border-red-300 hover:border-red-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+                  title="Delete this entire Job Card"
+                >
+                  <Trash2 size={15} /> Delete Job Card
                 </button>
               </div>
             </div>
@@ -1627,7 +2117,16 @@ export default function Admin() {
                   </div>
                   <h4 className="font-bold text-slate-900 text-base">{insp.vehicleMake} {insp.vehicleModel} ({insp.vehiclePlateNumber})</h4>
                   <p className="text-xs text-slate-500">Customer: {insp.customerName} ({insp.customerPhone})</p>
-                  <p className="text-xs text-slate-600 font-medium">Pre-Existing Damage Markers: {insp.damageMarkers?.length || 0}</p>
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                    <p className="text-xs text-slate-600 font-medium">Pre-Existing Damage Markers: {insp.damageMarkers?.length || 0}</p>
+                    <button
+                      onClick={() => handleDeleteInspection(insp)}
+                      className="px-2.5 py-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-300 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
+                      title="Delete Inspection Certificate"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1934,12 +2433,21 @@ export default function Admin() {
                 <p className="text-xs text-slate-500 font-medium">Manage mechanics, electricians, tinters, denting & painting technicians, service advisors, sales advisors, accountants</p>
               </div>
 
-              <button 
-                onClick={() => setShowAddStaffModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-2 text-sm"
-              >
-                <Plus size={18} /> Add New Staff Member
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleClearDefaultStaff}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-3 py-2 rounded-2xl shadow-xs flex items-center gap-1.5 text-xs transition-all"
+                  title="Remove sample/demo staff from initial seed"
+                >
+                  <Trash2 size={14} className="text-amber-600" /> Clear Default Demo Staff
+                </button>
+                <button 
+                  onClick={() => setShowAddStaffModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-2 text-sm transition-all"
+                >
+                  <Plus size={18} /> Add New Staff Member
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1964,9 +2472,89 @@ export default function Admin() {
                     >
                       ✏️ Edit
                     </button>
+                    <button
+                      onClick={() => handleDeleteStaff(emp)}
+                      className="px-2.5 py-1.5 bg-white hover:bg-red-50 text-red-600 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1"
+                      title="Delete Staff Member"
+                    >
+                      <Trash2 size={13} /> Delete
+                    </button>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: ADMIN ACCOUNTS / USERS MANAGEMENT */}
+        {activeTab === 'users' && (
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 flex flex-col gap-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="text-blue-600" /> System Administrators & Users
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">Manage administrators, advisors, and auditor credentials who can log in to this Admin Console.</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleClearDefaultUsers}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-3 py-2 rounded-2xl shadow-xs flex items-center gap-1.5 text-xs transition-all"
+                  title="Remove default demo admin accounts"
+                >
+                  <Trash2 size={14} className="text-amber-600" /> Clear Default Admin Accounts
+                </button>
+                <button
+                  onClick={() => setShowAddUserModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-2 text-sm transition-all"
+                >
+                  <Plus size={18} /> Add New Admin User
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {users.length === 0 ? (
+                <div className="col-span-3 text-center py-12 text-slate-400 font-medium">
+                  No user accounts found. Click "Add New Admin User" above to create one.
+                </div>
+              ) : (
+                users.map(u => (
+                  <div key={u.id} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex justify-between items-center shadow-xs hover:border-slate-300 transition-all">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm truncate max-w-[200px]" title={u.email}>{u.email}</h4>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="px-2 py-0.5 text-[10px] uppercase font-mono font-bold bg-blue-100 text-blue-800 rounded-md">
+                          {u.role}
+                        </span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                          u.status === 'active' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-200 text-slate-700 border border-slate-300'
+                        }`}>
+                          {u.status}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 block mt-1">Created: {new Date(u.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => openEditUserModal(u)}
+                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1"
+                        title="Edit User Details / Reset Password"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        className="px-2.5 py-1.5 bg-white hover:bg-red-50 text-red-600 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1"
+                        title="Delete User Account"
+                      >
+                        <Trash2 size={13} /> Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -2007,12 +2595,13 @@ export default function Admin() {
                     <th className="py-3 px-3">Employee Name</th>
                     <th className="py-3 px-3">Punch Type & Grace Status</th>
                     <th className="py-3 px-3">Date & Time</th>
+                    <th className="py-3 px-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {punches.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="py-8 text-center text-slate-400 font-medium italic">
+                      <td colSpan={4} className="py-8 text-center text-slate-400 font-medium italic">
                         No punches recorded for selected date ({selectedAttendanceDate}).
                       </td>
                     </tr>
@@ -2046,6 +2635,15 @@ export default function Admin() {
                           )}
                         </td>
                         <td className="py-3 px-3 font-mono text-slate-600">{new Date(p.serverTs).toLocaleString()}</td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            onClick={() => handleDeletePunch(p)}
+                            className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-all"
+                            title="Delete Punch Record"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2134,43 +2732,116 @@ export default function Admin() {
 
         {/* TAB 6: PARTS INVENTORY */}
         {activeTab === 'inventory' && (
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-2">
-              <Package className="text-lime-600" /> Spare Parts & Oils Master Catalog
-            </h3>
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                  <Package className="text-lime-600" /> Spare Parts & Oils Master Catalog
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">Manage workshop inventory items, stock levels, sales prices, and bay storage locations.</p>
+              </div>
+              <button
+                onClick={() => setShowAddPartMasterModal(true)}
+                className="bg-lime-600 hover:bg-lime-700 text-white font-black px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-1.5 text-xs transition-all"
+              >
+                <Plus size={16} /> Add New Spare Part
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {inventoryParts.map(part => (
-                <div key={part.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-base">{part.name}</h4>
-                    <span className="text-xs text-slate-500 font-mono">PN: {part.partNumber} • Category: {part.category}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-lime-700 text-base block">{part.unitPrice} AED</span>
-                    <span className="text-xs text-slate-500">In Stock: {part.stockQuantity}</span>
-                  </div>
+              {inventoryParts.length === 0 ? (
+                <div className="col-span-2 text-center py-12 text-slate-400 font-medium italic">
+                  No spare parts recorded. Click "Add New Spare Part" above to add items.
                 </div>
-              ))}
+              ) : (
+                inventoryParts.map(part => (
+                  <div key={part.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center shadow-2xs hover:border-slate-300 transition-all">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-base">{part.name}</h4>
+                      <span className="text-xs text-slate-500 font-mono block">PN: {part.partNumber} • Category: {part.category}</span>
+                      <span className="text-[11px] text-slate-400">Loc: {part.location || 'Shelf A'} • Cost: {part.unitCost || 0} AED</span>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-lime-700 text-base block">{part.unitPrice} AED</span>
+                        <span className="text-xs text-slate-500 font-semibold">In Stock: {part.stockQuantity}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => openEditPartModal(part)}
+                          className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold shadow-2xs transition-all"
+                          title="Edit Part"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePart(part)}
+                          className="px-2.5 py-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-300 rounded-lg text-xs font-bold shadow-2xs transition-all"
+                          title="Delete Part"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
 
         {/* TAB 7: LABOR CATALOG */}
         {activeTab === 'labor' && (
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-2">
-              <FileText className="text-blue-600" /> Standard Labor Operations & Rates
-            </h3>
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                  <FileText className="text-blue-600" /> Standard Labor Operations & Rates
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">Standard workshop operations, benchmark labor hours, and hourly billing rates per section.</p>
+              </div>
+              <button
+                onClick={() => setShowAddLaborMasterModal(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 rounded-2xl shadow-md flex items-center gap-1.5 text-xs transition-all"
+              >
+                <Plus size={16} /> Add Labor Operation
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {laborCatalog.map(labor => (
-                <div key={labor.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-base">{labor.name}</h4>
-                    <span className="text-xs text-slate-500">Section: {labor.section} • Est: {labor.standardHours} hrs</span>
-                  </div>
-                  <span className="font-mono font-bold text-blue-600 text-lg">{labor.standardRate} AED</span>
+              {laborCatalog.length === 0 ? (
+                <div className="col-span-2 text-center py-12 text-slate-400 font-medium italic">
+                  No labor operations cataloged. Click "Add Labor Operation" above to create standard tasks.
                 </div>
-              ))}
+              ) : (
+                laborCatalog.map(labor => (
+                  <div key={labor.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex justify-between items-center shadow-2xs hover:border-slate-300 transition-all">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-base">{labor.name}</h4>
+                      <span className="text-xs text-slate-500">Section: <strong className="text-slate-700">{labor.section}</strong> • Est: {labor.standardHours} hrs</span>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className="font-mono font-bold text-blue-600 text-lg">{labor.standardRate} AED</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => openEditLaborModal(labor)}
+                          className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold shadow-2xs transition-all"
+                          title="Edit Labor Operation"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLaborCatalogItem(labor)}
+                          className="px-2.5 py-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-300 rounded-lg text-xs font-bold shadow-2xs transition-all"
+                          title="Delete Labor Operation"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -3303,6 +3974,588 @@ export default function Admin() {
                   className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md"
                 >
                   <Save size={14} /> {assigningTask ? 'Assigning...' : 'Assign Task Now'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* UNIVERSAL DELETE CONFIRMATION MODAL */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[999]">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h4 className="text-lg font-black text-slate-900">{deleteModal.title || 'Confirm Deletion'}</h4>
+                <p className="text-xs text-slate-500 font-medium">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed font-medium">
+              {deleteModal.message}
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteModal.onConfirm()}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+              >
+                <Trash2 size={14} /> {deleteModal.confirmText || 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD ADMIN USER MODAL */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="text-blue-600" /> Create New Admin User
+              </h4>
+              <button onClick={() => setShowAddUserModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleAddUser} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  value={newUser.email}
+                  onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+                  placeholder="e.g. manager@fazahgarage.com"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Password *</label>
+                <input
+                  type="password"
+                  value={newUser.password}
+                  onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                  placeholder="Minimum 6 characters"
+                  minLength={6}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">System Role</label>
+                <select
+                  value={newUser.role}
+                  onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-800"
+                >
+                  <option value="admin">Administrator (Full Access)</option>
+                  <option value="super_admin">Super Administrator</option>
+                  <option value="auditor">Auditor (Read-Only)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Create User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ADMIN USER MODAL */}
+      {showEditUserModal && editingUser && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                ✏️ Edit Admin Account
+              </h4>
+              <button onClick={() => setShowEditUserModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleUpdateUser} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  value={editUserForm.email}
+                  onChange={e => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Role</label>
+                  <select
+                    value={editUserForm.role}
+                    onChange={e => setEditUserForm({ ...editUserForm, role: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-800"
+                  >
+                    <option value="admin">Administrator</option>
+                    <option value="super_admin">Super Admin</option>
+                    <option value="auditor">Auditor</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Status</label>
+                  <select
+                    value={editUserForm.status}
+                    onChange={e => setEditUserForm({ ...editUserForm, status: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-800"
+                  >
+                    <option value="active">Active</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">
+                  Change Password <span className="text-slate-400 font-normal lowercase">(leave blank to keep current)</span>
+                </label>
+                <input
+                  type="password"
+                  minLength={6}
+                  value={editUserForm.password}
+                  onChange={e => setEditUserForm({ ...editUserForm, password: e.target.value })}
+                  placeholder="New password (optional)"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowEditUserModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD SPARE PART MODAL */}
+      {showAddPartMasterModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <Package className="text-lime-600" /> Add New Inventory Part
+              </h4>
+              <button onClick={() => setShowAddPartMasterModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleAddPart} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Part Name *</label>
+                <input
+                  type="text"
+                  value={newPart.name}
+                  onChange={e => setNewPart({ ...newPart, name: e.target.value })}
+                  placeholder="e.g. Synthetic Engine Oil 5W-30"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Part Number *</label>
+                  <input
+                    type="text"
+                    value={newPart.partNumber}
+                    onChange={e => setNewPart({ ...newPart, partNumber: e.target.value.toUpperCase() })}
+                    placeholder="OIL-5W30"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-mono font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newPart.category}
+                    onChange={e => setNewPart({ ...newPart, category: e.target.value })}
+                    placeholder="Oils & Fluids"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Stock Qty *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newPart.stockQuantity}
+                    onChange={e => setNewPart({ ...newPart, stockQuantity: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Unit Price (AED) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={newPart.unitPrice}
+                    onChange={e => setNewPart({ ...newPart, unitPrice: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-lime-700"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Cost Price (AED)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={newPart.unitCost}
+                    onChange={e => setNewPart({ ...newPart, unitCost: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Bay / Rack Location</label>
+                <input
+                  type="text"
+                  value={newPart.location}
+                  onChange={e => setNewPart({ ...newPart, location: e.target.value })}
+                  placeholder="Rack A-1"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPartMasterModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-lime-600 hover:bg-lime-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Save Part
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SPARE PART MODAL */}
+      {showEditPartMasterModal && editingPart && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                ✏️ Edit Inventory Part
+              </h4>
+              <button onClick={() => setShowEditPartMasterModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleUpdatePart} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Part Name *</label>
+                <input
+                  type="text"
+                  value={editPartForm.name}
+                  onChange={e => setEditPartForm({ ...editPartForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Part Number *</label>
+                  <input
+                    type="text"
+                    value={editPartForm.partNumber}
+                    onChange={e => setEditPartForm({ ...editPartForm, partNumber: e.target.value.toUpperCase() })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-mono font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={editPartForm.category}
+                    onChange={e => setEditPartForm({ ...editPartForm, category: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Stock Qty *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editPartForm.stockQuantity}
+                    onChange={e => setEditPartForm({ ...editPartForm, stockQuantity: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Unit Price (AED) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={editPartForm.unitPrice}
+                    onChange={e => setEditPartForm({ ...editPartForm, unitPrice: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-lime-700"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Cost Price (AED)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={editPartForm.unitCost}
+                    onChange={e => setEditPartForm({ ...editPartForm, unitCost: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Bay / Rack Location</label>
+                <input
+                  type="text"
+                  value={editPartForm.location}
+                  onChange={e => setEditPartForm({ ...editPartForm, location: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowEditPartMasterModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-lime-600 hover:bg-lime-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD LABOR OPERATION MODAL */}
+      {showAddLaborMasterModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <FileText className="text-blue-600" /> Add Labor Operation
+              </h4>
+              <button onClick={() => setShowAddLaborMasterModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleAddLabor} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Operation Name *</label>
+                <input
+                  type="text"
+                  value={newLabor.name}
+                  onChange={e => setNewLabor({ ...newLabor, name: e.target.value })}
+                  placeholder="e.g. Brake Pads Replacement & Bleed"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Department Section *</label>
+                <select
+                  value={newLabor.section}
+                  onChange={e => setNewLabor({ ...newLabor, section: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-800"
+                >
+                  {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Estimated Hours *</label>
+                  <input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={newLabor.standardHours}
+                    onChange={e => setNewLabor({ ...newLabor, standardHours: parseFloat(e.target.value) || 1 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Standard Rate (AED) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={newLabor.standardRate}
+                    onChange={e => setNewLabor({ ...newLabor, standardRate: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-blue-600"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowAddLaborMasterModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Save Labor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT LABOR OPERATION MODAL */}
+      {showEditLaborMasterModal && editingLabor && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                ✏️ Edit Labor Operation
+              </h4>
+              <button onClick={() => setShowEditLaborMasterModal(false)} className="text-slate-400 hover:text-slate-800 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleUpdateLabor} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Operation Name *</label>
+                <input
+                  type="text"
+                  value={editLaborForm.name}
+                  onChange={e => setEditLaborForm({ ...editLaborForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-medium text-slate-900"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Department Section *</label>
+                <select
+                  value={editLaborForm.section}
+                  onChange={e => setEditLaborForm({ ...editLaborForm, section: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-800"
+                >
+                  {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Estimated Hours *</label>
+                  <input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={editLaborForm.standardHours}
+                    onChange={e => setEditLaborForm({ ...editLaborForm, standardHours: parseFloat(e.target.value) || 1 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-slate-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Standard Rate (AED) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={editLaborForm.standardRate}
+                    onChange={e => setEditLaborForm({ ...editLaborForm, standardRate: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-blue-600"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowEditLaborMasterModal(false)}
+                  className="w-1/2 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>
