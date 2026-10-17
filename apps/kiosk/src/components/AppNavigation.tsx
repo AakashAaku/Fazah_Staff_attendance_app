@@ -1,28 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Clock, UserCheck, Shield, Download, Server, Smartphone } from 'lucide-react';
+import { Clock, UserCheck, Shield, Download, Smartphone } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
-import ApiSettingsModal from './ApiSettingsModal';
 import InstallModal from './InstallModal';
-import { checkApiHealth, type HealthCheckResult } from '../services/api';
 
 export default function AppNavigation() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isInstallable, isInstalled, isIOS, promptInstall } = usePWA();
-
-  const [showApiModal, setShowApiModal] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
-  const [apiHealth, setApiHealth] = useState<HealthCheckResult | null>(null);
-
-  useEffect(() => {
-    // Check initial API health
-    checkApiHealth().then(setApiHealth);
-    const interval = setInterval(() => {
-      checkApiHealth().then(setApiHealth);
-    }, 45000);
-    return () => clearInterval(interval);
-  }, []);
 
   const navItems = [
     { path: '/kiosk', label: 'Punch Kiosk', shortLabel: 'Kiosk', icon: Clock },
@@ -86,9 +72,8 @@ export default function AppNavigation() {
             })}
           </div>
 
-          {/* Right Action Controls: PWA Install & API Status Badge */}
+          {/* Right Action Controls: PWA Install */}
           <div className="flex items-center gap-2">
-            {/* Install Button (Desktop & Mobile) */}
             {!isInstalled && (
               <button
                 onClick={handleInstallClick}
@@ -106,23 +91,6 @@ export default function AppNavigation() {
                 <Smartphone size={12} className="text-lime-400" /> PWA Mode
               </span>
             )}
-
-            {/* API Status Badge */}
-            <button
-              onClick={() => setShowApiModal(true)}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                apiHealth?.connected
-                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/60'
-                  : 'bg-rose-950/40 border-rose-500/40 text-rose-300 hover:bg-rose-950/60'
-              }`}
-              title="Click to check or configure Backend API host"
-            >
-              <span className={`w-2 h-2 rounded-full ${apiHealth?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-              <Server size={13} className="opacity-80" />
-              <span className="hidden sm:inline">
-                {apiHealth?.connected ? `${apiHealth.latencyMs}ms` : 'API Config'}
-              </span>
-            </button>
           </div>
 
         </div>
@@ -130,7 +98,7 @@ export default function AppNavigation() {
 
       {/* Mobile Bottom Navigation Bar - Fixed thumb navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 text-slate-200 px-2 py-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl">
-        <div className="grid grid-cols-4 gap-1 items-center max-w-md mx-auto">
+        <div className={`grid ${!isInstalled ? 'grid-cols-4' : 'grid-cols-3'} gap-1 items-center max-w-md mx-auto`}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isCurrent(item.path);
@@ -150,36 +118,19 @@ export default function AppNavigation() {
             );
           })}
 
-          {/* 4th Tab: Install or API Settings on Mobile */}
-          <button
-            onClick={() => {
-              if (!isInstalled) setShowInstallModal(true);
-              else setShowApiModal(true);
-            }}
-            className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-slate-400 hover:text-slate-200 font-medium transition-all"
-          >
-            {!isInstalled ? (
-              <>
-                <Download size={18} className="text-blue-400" />
-                <span className="text-2xs mt-0.5">Install</span>
-              </>
-            ) : (
-              <>
-                <Server size={18} className={apiHealth?.connected ? 'text-emerald-400' : 'text-rose-400'} />
-                <span className="text-2xs mt-0.5">API</span>
-              </>
-            )}
-          </button>
+          {!isInstalled && (
+            <button
+              onClick={handleInstallClick}
+              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-lime-400 hover:text-lime-300 font-medium transition-all"
+            >
+              <Download size={18} className="animate-bounce" />
+              <span className="text-2xs mt-0.5">Install</span>
+            </button>
+          )}
         </div>
       </nav>
 
-      {/* Dialogs */}
-      <ApiSettingsModal
-        isOpen={showApiModal}
-        onClose={() => setShowApiModal(false)}
-        onSaved={() => checkApiHealth().then(setApiHealth)}
-      />
-
+      {/* Install Modal */}
       <InstallModal
         isOpen={showInstallModal}
         onClose={() => setShowInstallModal(false)}

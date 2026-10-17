@@ -1,37 +1,24 @@
 /**
  * Fazah Auto Garage - Centralized API Service
- * Handles dynamic API routing (Localhost, Netlify Proxy, Custom Cloud Backend)
+ * Fully automated API routing for development & production.
+ * No manual browser entry required.
  */
 
-const STORAGE_KEY = 'fazah_custom_api_url';
-
-export function getCustomApiUrl(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem(STORAGE_KEY) || '';
-}
-
-export function setCustomApiUrl(url: string): void {
-  if (typeof window === 'undefined') return;
-  const trimmed = url.trim().replace(/\/+$/, ''); // remove trailing slash
-  if (trimmed) {
-    localStorage.setItem(STORAGE_KEY, trimmed);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+// Clean up legacy manual storage key if previously set
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('fazah_custom_api_url');
+  } catch (_) {}
 }
 
 export function getApiBaseUrl(): string {
-  // 1. Manually specified custom backend URL in UI
-  const custom = getCustomApiUrl();
-  if (custom) return custom;
-
-  // 2. Vite Environment Variable (e.g. VITE_API_URL set in Netlify Environment)
+  // 1. Vite Environment Variable (e.g. VITE_API_URL set in Netlify Environment)
   const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) {
-    return (envUrl as string).trim().replace(/\/+$/, '');
+  if (envUrl && typeof envUrl === 'string') {
+    return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // 3. Fallback to relative '' (works with Netlify _redirects or Vite local proxy)
+  // 2. Default: Relative '' (automatically routed by Netlify /api proxy or Vite dev proxy)
   return '';
 }
 
