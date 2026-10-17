@@ -130,26 +130,36 @@ export class EmployeesService {
 
     await this.dataSource.transaction(async (manager) => {
       // 1. Unlink foreign keys from records that should remain intact
-      await manager.query(`UPDATE job_cards SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE job_card_labors SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE job_card_labors SET qa_verified_by_id = NULL WHERE qa_verified_by_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE job_card_logs SET employee_id = NULL WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE job_card_handovers SET handed_over_by_id = NULL WHERE handed_over_by_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE job_card_handovers SET received_by_id = NULL WHERE received_by_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE devices SET employee_id = NULL WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE employees SET supervisor_id = NULL WHERE supervisor_id = $1`, [empId]).catch(() => {});
-      await manager.query(`UPDATE tasks SET assigned_to = NULL WHERE assigned_to = $1`, [empId]).catch(() => {});
+      await manager.query(`UPDATE job_cards SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_labors SET assigned_mechanic_id = NULL WHERE assigned_mechanic_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_labors SET qa_verified_by_id = NULL WHERE qa_verified_by_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_parts SET requested_by_id = NULL WHERE requested_by_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_handovers SET handed_over_by_id = NULL WHERE handed_over_by_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_handovers SET received_by_id = NULL WHERE received_by_id = $1`, [empId]);
+      await manager.query(`UPDATE job_card_logs SET employee_id = NULL WHERE employee_id = $1`, [empId]);
+      await manager.query(`UPDATE devices SET employee_id = NULL WHERE employee_id = $1`, [empId]);
+      await manager.query(`UPDATE employees SET supervisor_id = NULL WHERE supervisor_id = $1`, [empId]);
 
-      // 2. Delete employee specific credentials and logs
-      await manager.query(`DELETE FROM employee_credentials WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM shift_assignments WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM work_sessions WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM daily_summaries WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM time_adjustments WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM task_logs WHERE employee_id = $1`, [empId]).catch(() => {});
-      await manager.query(`DELETE FROM punches WHERE "employeeId" = $1`, [empId]).catch(() => {});
+      // 2. Delete child records in reverse dependency order
+      // Tasks and task logs (assigned_to_id is NOT NULL in tasks table)
+      await manager.query(`DELETE FROM task_logs WHERE employee_id = $1 OR task_id IN (SELECT id FROM tasks WHERE assigned_to_id = $1)`, [empId]);
+      await manager.query(`DELETE FROM tasks WHERE assigned_to_id = $1`, [empId]);
 
-      // 3. Delete the employee
+      // Timesheet adjustments & summaries
+      await manager.query(`DELETE FROM time_adjustments WHERE employee_id = $1`, [empId]);
+      await manager.query(`DELETE FROM daily_summaries WHERE employee_id = $1`, [empId]);
+
+      // Work sessions (which reference punches via in_punch_id/out_punch_id)
+      await manager.query(`DELETE FROM work_sessions WHERE employee_id = $1`, [empId]);
+
+      // Attendance punches
+      await manager.query(`DELETE FROM punches WHERE "employeeId" = $1`, [empId]);
+
+      // Shift assignments & credentials
+      await manager.query(`DELETE FROM shift_assignments WHERE employee_id = $1`, [empId]);
+      await manager.query(`DELETE FROM employee_credentials WHERE employee_id = $1`, [empId]);
+
+      // 3. Delete the employee record (users table is kept intact)
       await manager.query(`DELETE FROM employees WHERE id = $1 AND tenant_id = $2`, [empId, tenantId]);
     });
 
