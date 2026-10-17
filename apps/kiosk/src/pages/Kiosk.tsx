@@ -2,17 +2,10 @@ import { useState, useEffect } from 'react';
 import { CheckCircle2, UserCircle, Search, ArrowLeft, Clock, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../services/api';
 
-const mockEmployees = [
-  { id: '1', name: 'Ahmed Ali', role: 'Mechanic', status: 'OUT' },
-  { id: '2', name: 'Sara Khan', role: 'Advisor', status: 'IN' },
-  { id: '3', name: 'Tariq Mahmoud', role: 'Electrician', status: 'OUT' },
-  { id: '4', name: 'Fatima Nasser', role: 'Manager', status: 'IN' },
-  { id: '5', name: 'Rajesh Kumar', role: 'Denting & Painting', status: 'OUT' },
-];
-
 export default function Kiosk() {
   const [time, setTime] = useState(new Date());
   const [employees, setEmployees] = useState<{ id: string, name: string, role: string, status: string }[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState<typeof employees[0] | null>(null);
   const [pin, setPin] = useState('');
@@ -25,22 +18,24 @@ export default function Kiosk() {
   }, []);
 
   const loadEmployees = () => {
+    setLoading(true);
     apiFetch('/api/kiosk/employees')
       .then(res => {
         if (!res.ok) throw new Error('API request failed');
         return res.json();
       })
       .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setEmployees(data);
         } else {
-          setEmployees(mockEmployees);
+          setEmployees([]);
         }
       })
       .catch(err => {
-        console.warn('Failed to fetch employees, using offline fallback:', err);
-        setEmployees(mockEmployees);
-      });
+        console.error('Failed to fetch kiosk employees:', err);
+        setEmployees([]);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -227,8 +222,23 @@ export default function Kiosk() {
             ))}
 
             {filteredEmployees.length === 0 && (
-              <div className="col-span-full py-8 text-center text-slate-400 text-xs">
-                No matching staff member found.
+              <div className="col-span-full py-10 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-3">
+                {loading ? (
+                  <>
+                    <div className="w-7 h-7 border-2 border-lime-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="font-medium text-slate-300">Loading staff members...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{searchQuery ? 'No matching staff members found.' : 'No active staff members found.'}</span>
+                    <button
+                      onClick={loadEmployees}
+                      className="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors font-medium text-xs active:scale-95"
+                    >
+                      Refresh List
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

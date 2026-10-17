@@ -1,10 +1,12 @@
 /**
  * Fazah Auto Garage - Centralized API Service
- * Fully automated API routing for development & production.
+ * Fixed production backend: https://fazah-staff-attendance-app.onrender.com
  * No manual browser entry required.
  */
 
-// Clean up legacy manual storage key if previously set
+const DEFAULT_API_URL = 'https://fazah-staff-attendance-app.onrender.com';
+
+// Clean up legacy manual storage key if previously set in user's browser
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('fazah_custom_api_url');
@@ -12,14 +14,22 @@ if (typeof window !== 'undefined') {
 }
 
 export function getApiBaseUrl(): string {
-  // 1. Vite Environment Variable (e.g. VITE_API_URL set in Netlify Environment)
+  // 1. Explicit Vite Environment Variable (if set)
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl && typeof envUrl === 'string') {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // 2. Default: Relative '' (automatically routed by Netlify /api proxy or Vite dev proxy)
-  return '';
+  // 2. Local development: use relative '' so Vite proxy forwards to local backend
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return '';
+    }
+  }
+
+  // 3. Production: automatically use the live Render backend
+  return DEFAULT_API_URL;
 }
 
 export function buildApiUrl(endpoint: string): string {
@@ -27,7 +37,6 @@ export function buildApiUrl(endpoint: string): string {
   const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
   if (base) {
-    // If base doesn't end with /api and cleanPath starts with /api
     if (base.endsWith('/api') && cleanPath.startsWith('/api/')) {
       return `${base}${cleanPath.substring(4)}`;
     }
@@ -56,11 +65,9 @@ export async function checkApiHealth(): Promise<HealthCheckResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
     
-    // First try /api/health
     let res = await fetch(endpoint, { signal: controller.signal });
     clearTimeout(timeout);
 
-    // If /api/health is 404, fallback test /api/kiosk/employees
     if (!res.ok && res.status === 404) {
       const fallbackUrl = buildApiUrl('/api/kiosk/employees');
       res = await fetch(fallbackUrl);

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: fazah-garage-api
+    name: fazah-staff-attendance-app
     runtime: node
     plan: free
     region: frankfurt

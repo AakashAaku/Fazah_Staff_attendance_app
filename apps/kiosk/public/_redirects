@@ -1,2 +1,2 @@
-/api/*  https://fazah-garage-api.onrender.com/api/:splat  200!
-/*      /index.html                                       200
+/api/*  https://fazah-staff-attendance-app.onrender.com/api/:splat  200!
+/*      /index.html                                                 200
