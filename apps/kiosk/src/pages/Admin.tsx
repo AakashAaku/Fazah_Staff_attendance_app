@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, MessageSquare, Save, ShieldCheck, RefreshCw, Calendar, Search, ShoppingBag, Edit, Trash2 } from 'lucide-react';
+import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, MessageSquare, Save, ShieldCheck, RefreshCw, Calendar, Search, ShoppingBag, Edit, Trash2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '../services/api';
 
 export default function Admin() {
@@ -54,24 +54,30 @@ export default function Admin() {
   const [taskToReopen, setTaskToReopen] = useState<any>(null);
   const [reopenReasonInput, setReopenReasonInput] = useState('');
 
-  // Page Title
+  // Page Title & Session Expiration Handler
   useEffect(() => {
     document.title = "Fazah - Admin";
+
+    const handleUnauthorized = () => {
+      setToken('');
+      localStorage.removeItem('adminToken');
+      setLoginError('Your session has expired. Please sign in again.');
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
-  // Job Card Creation Modal
+  // Job Card Creation Modal (Streamlined for in-house ERP tracking)
   const [showAddJobModal, setShowAddJobModal] = useState(false);
   const [newJob, setNewJob] = useState({
-    customerName: '',
-    customerPhone: '',
-    vehiclePlateNumber: '',
-    vehicleMake: 'Toyota',
-    vehicleModel: '',
-    vehicleYear: '2022',
-    mileage: 50000,
+    jobNumber: '',
+    vehicleReference: '',
+    priority: 'NORMAL',
     assignedSection: 'Mechanical',
-    assignedMechanicId: '',
     complaintsText: '',
+    tasks: [
+      { operationName: '', section: 'Mechanical', assignedMechanicId: '', estimatedHours: 1 }
+    ]
   });
 
   // SMART INTAKE INSPECTION MODAL STATE
@@ -539,27 +545,78 @@ export default function Admin() {
 
   const handleCreateFastJobCard = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newJob.jobNumber.trim()) return;
+
     try {
+      const activeTasks = newJob.tasks.filter(t => t.operationName.trim().length > 0);
       const res = await apiFetch('/api/job-cards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...newJob,
-          complaints: newJob.complaintsText ? [newJob.complaintsText] : ['General Vehicle Service']
+          jobNumber: newJob.jobNumber.trim(),
+          externalErpId: newJob.jobNumber.trim(),
+          vehicleReference: newJob.vehicleReference.trim(),
+          vehiclePlateNumber: newJob.vehicleReference.trim() || newJob.jobNumber.trim(),
+          vehicleMake: newJob.vehicleReference.trim() || 'Vehicle',
+          vehicleModel: '',
+          customerName: 'ERP Customer',
+          customerPhone: '',
+          priority: newJob.priority,
+          assignedSection: newJob.assignedSection,
+          complaintsText: newJob.complaintsText,
+          tasks: activeTasks.map((t, idx) => ({
+            operationName: t.operationName.trim(),
+            section: t.section || newJob.assignedSection,
+            assignedMechanicId: t.assignedMechanicId || undefined,
+            estimatedHours: Number(t.estimatedHours) || 1,
+            stepOrder: idx + 1,
+          }))
         })
       });
       if (res.ok) {
         setShowAddJobModal(false);
         setNewJob({
-          customerName: '', customerPhone: '', vehiclePlateNumber: '', vehicleMake: 'Toyota',
-          vehicleModel: '', vehicleYear: '2022', mileage: 50000, assignedSection: 'Mechanical',
-          assignedMechanicId: '', complaintsText: ''
+          jobNumber: '',
+          vehicleReference: '',
+          priority: 'NORMAL',
+          assignedSection: 'Mechanical',
+          complaintsText: '',
+          tasks: [{ operationName: '', section: 'Mechanical', assignedMechanicId: '', estimatedHours: 1 }]
         });
+        const created = await res.json();
         fetchData();
+        if (created && created.id) {
+          fetchSingleJobDetails(created.id);
+        }
       }
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const addNewJobTask = () => {
+    setNewJob(prev => ({
+      ...prev,
+      tasks: [
+        ...prev.tasks,
+        { operationName: '', section: prev.assignedSection, assignedMechanicId: '', estimatedHours: 1 }
+      ]
+    }));
+  };
+
+  const updateNewJobTask = (index: number, field: string, value: any) => {
+    setNewJob(prev => {
+      const updated = [...prev.tasks];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, tasks: updated };
+    });
+  };
+
+  const removeNewJobTask = (index: number) => {
+    setNewJob(prev => {
+      if (prev.tasks.length <= 1) return prev;
+      return { ...prev, tasks: prev.tasks.filter((_, i) => i !== index) };
+    });
   };
 
   const fetchSingleJobDetails = async (jobId: string) => {
@@ -1400,22 +1457,23 @@ export default function Admin() {
 
               <div className="flex flex-wrap gap-2">
                 <button 
-                  onClick={openErpSyncModal}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-3 rounded-2xl shadow-md flex items-center gap-2 transition-transform active:scale-95 text-sm"
+                  onClick={() => setShowAddJobModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black px-5 py-3 rounded-2xl shadow-md flex items-center gap-2 transition-transform active:scale-95 text-sm"
                 >
-                  <RefreshCw size={18} /> Sync / Copy ERP Job Card
+                  <Plus size={18} /> + Add ERP Job Card & Tasks
                 </button>
                 <button 
                   onClick={() => setShowInspectionModal(true)}
-                  className="bg-lime-600 hover:bg-lime-700 text-white font-black px-4 py-3 rounded-2xl shadow-md flex items-center gap-2 transition-transform active:scale-95 text-sm"
+                  className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-3 rounded-2xl shadow-md flex items-center gap-2 transition-transform active:scale-95 text-sm"
                 >
                   <ShieldCheck size={18} /> Smart Vehicle Intake & Inspection
                 </button>
                 <button 
-                  onClick={() => setShowAddJobModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-3 rounded-2xl shadow-md flex items-center gap-2 transition-transform active:scale-95 text-sm"
+                  onClick={openErpSyncModal}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3.5 py-3 rounded-2xl border border-slate-300 shadow-xs flex items-center gap-1.5 transition-transform active:scale-95 text-xs"
+                  title="Advanced Multi-department ERP Step Importer"
                 >
-                  <Plus size={18} /> Fast Job Card
+                  <RefreshCw size={15} /> Batch Sync
                 </button>
               </div>
             </div>
@@ -3036,47 +3094,181 @@ export default function Admin() {
         </div>
       )}
 
-      {/* FAST JOB CARD MODAL */}
+      {/* ERP IN-HOUSE TRACKING JOB CARD MODAL */}
       {showAddJobModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-xl shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 w-full max-w-2xl shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-200 pb-3">
-              <h4 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Car className="text-blue-600" /> Create Fast Job Card
-              </h4>
-              <button onClick={() => setShowAddJobModal(false)} className="text-slate-400 hover:text-slate-800 font-bold text-xl">✕</button>
+              <div>
+                <h4 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                  <Wrench className="text-blue-600" /> Track ERP Job Card & Tasks
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                  Enter the Job Card number created in your ERP to track workshop execution, staff time, and parts.
+                </p>
+              </div>
+              <button onClick={() => setShowAddJobModal(false)} className="text-slate-400 hover:text-slate-800 font-bold text-xl p-1">✕</button>
             </div>
 
             <form onSubmit={handleCreateFastJobCard} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              {/* Core Job Card Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                 <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Customer Name</label>
-                  <input type="text" value={newJob.customerName} onChange={e => setNewJob({...newJob, customerName: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium" required placeholder="e.g. Mohammed Salem" />
+                  <label className="block font-black text-slate-800 uppercase mb-1">
+                    Job Card # (from ERP) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newJob.jobNumber}
+                    onChange={e => setNewJob({...newJob, jobNumber: e.target.value})}
+                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-blue-700 font-mono font-black text-base shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    required
+                    placeholder="e.g. 10482 or JC-9921"
+                    autoFocus
+                  />
+                  <span className="text-[10px] text-slate-500 block mt-1">Exact job number generated by your ERP</span>
                 </div>
+
                 <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Phone Number</label>
-                  <input type="text" value={newJob.customerPhone} onChange={e => setNewJob({...newJob, customerPhone: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium" required placeholder="0501234567" />
+                  <label className="block font-bold text-slate-700 uppercase mb-1">
+                    Vehicle / Customer Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newJob.vehicleReference}
+                    onChange={e => setNewJob({...newJob, vehicleReference: e.target.value})}
+                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-slate-900 font-medium shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    placeholder="e.g. Land Cruiser White / Plate 4821"
+                  />
+                  <span className="text-[10px] text-slate-500 block mt-1">Quick tag to identify car in bay</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Primary Department / Trade</label>
+                  <select
+                    value={newJob.assignedSection}
+                    onChange={e => setNewJob({...newJob, assignedSection: e.target.value})}
+                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-slate-800 font-bold shadow-xs"
+                  >
+                    {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Priority</label>
+                  <select
+                    value={newJob.priority}
+                    onChange={e => setNewJob({...newJob, priority: e.target.value})}
+                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-slate-800 font-bold shadow-xs"
+                  >
+                    <option value="NORMAL">Normal Priority</option>
+                    <option value="HIGH">High Priority</option>
+                    <option value="URGENT">🚨 Urgent / Rush Job</option>
+                  </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Vehicle Plate #</label>
-                  <input type="text" value={newJob.vehiclePlateNumber} onChange={e => setNewJob({...newJob, vehiclePlateNumber: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-lime-700 font-mono font-bold text-base" required placeholder="A-12345" />
+              {/* Tasks to be Performed & Staff Assignment */}
+              <div className="space-y-3 bg-blue-50/50 p-4 rounded-2xl border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h5 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
+                      <Wrench size={16} className="text-blue-600" /> Tasks / Works to Perform ({newJob.tasks.length})
+                    </h5>
+                    <p className="text-[11px] text-slate-500">Add the tasks listed on this ERP job card and assign technicians</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addNewJobTask}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-xs transition-transform active:scale-95"
+                  >
+                    <Plus size={14} /> Add Another Task
+                  </button>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Vehicle Model</label>
-                  <input type="text" value={newJob.vehicleModel} onChange={e => setNewJob({...newJob, vehicleModel: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium" required placeholder="Camry / Patrol / Civic" />
+
+                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                  {newJob.tasks.map((task, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          Work #{idx + 1}
+                        </span>
+                        {newJob.tasks.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeNewJobTask(idx)}
+                            className="text-slate-400 hover:text-red-600 p-1 font-bold text-xs"
+                            title="Remove this task"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-6">
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Task Description / Operation</label>
+                          <input
+                            type="text"
+                            value={task.operationName}
+                            onChange={e => updateNewJobTask(idx, 'operationName', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-900 font-medium"
+                            placeholder="e.g. Brake pad change, Oil filter, Paint door"
+                            required={idx === 0}
+                          />
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Trade</label>
+                          <select
+                            value={task.section}
+                            onChange={e => updateNewJobTask(idx, 'section', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-medium"
+                          >
+                            {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Assign Staff</label>
+                          <select
+                            value={task.assignedMechanicId}
+                            onChange={e => updateNewJobTask(idx, 'assignedMechanicId', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-medium"
+                          >
+                            <option value="">Unassigned</option>
+                            {employees.map(emp => (
+                              <option key={emp.id} value={emp.id}>
+                                {emp.fullName} ({emp.jobTitle || emp.employeeCode})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
+              {/* Remarks / Complaints (Optional) */}
               <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">Service / Complaint Remarks</label>
-                <textarea value={newJob.complaintsText} onChange={e => setNewJob({...newJob, complaintsText: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium" rows={2} placeholder="e.g. Engine noise on acceleration, AC not cooling" />
+                <label className="block font-bold text-slate-700 uppercase mb-1">
+                  Complaints / Special Remarks (Optional)
+                </label>
+                <textarea
+                  value={newJob.complaintsText}
+                  onChange={e => setNewJob({...newJob, complaintsText: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium shadow-xs"
+                  rows={2}
+                  placeholder="Any customer complaints or notes from the ERP job sheet..."
+                />
               </div>
 
-              <button type="submit" className="w-full py-4 bg-blue-600 text-white font-black text-base rounded-xl shadow-md">
-                Create & Dispatch Job Card
+              <button
+                type="submit"
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-xl shadow-lg transition-transform active:scale-[0.99] flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={18} /> Save & Start In-House Tracking
               </button>
             </form>
           </div>

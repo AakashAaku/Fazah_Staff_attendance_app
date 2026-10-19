@@ -48,7 +48,29 @@ export function buildApiUrl(endpoint: string): string {
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
   const url = buildApiUrl(endpoint);
-  return fetch(url, options);
+  
+  // Auto-inject Authorization header if adminToken exists and not explicitly set
+  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+  const headers = new Headers(options.headers || {});
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(url, { ...options, headers });
+
+  // Handle 401 Unauthorized for authenticated endpoints (auto sign-out expired sessions)
+  if (
+    response.status === 401 &&
+    !endpoint.includes('/api/auth/login') &&
+    !endpoint.includes('/api/kiosk/staff-login')
+  ) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('adminToken');
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+  }
+
+  return response;
 }
 
 export interface HealthCheckResult {

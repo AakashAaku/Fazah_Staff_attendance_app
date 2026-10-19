@@ -128,30 +128,78 @@ export class JobCardsService implements OnModuleInit {
     const tenantId = '11111111-1111-1111-1111-111111111111';
     const branchId = dto.branchId || '22222222-2222-2222-2222-222222222222';
     
-    // Generate Job Number
+    // Use user-provided Job Number (from ERP) or auto-generate fallback
     const count = await this.jobCardRepo.count();
     const year = new Date().getFullYear();
-    const jobNumber = `JC-${year}-${String(count + 1).padStart(4, '0')}`;
+    const userJobNum = (dto.jobNumber || dto.externalErpId || '').trim();
+    const jobNumber = userJobNum ? userJobNum : `JC-${year}-${String(count + 1).padStart(4, '0')}`;
+
+    // Ensure job card does not duplicate existing number
+    let existing = await this.jobCardRepo.findOne({ where: { jobNumber } });
+    if (existing) {
+      // If job already exists, return it or update its basic info
+      return this.findOne(existing.id);
+    }
 
     const jobCard = this.jobCardRepo.create({
-      ...dto,
+      customerName: dto.customerName || 'In-House ERP Job',
+      customerPhone: dto.customerPhone || '',
+      vehiclePlateNumber: dto.vehiclePlateNumber || (dto.vehicleReference || 'ERP Job'),
+      vehicleMake: dto.vehicleMake || 'General',
+      vehicleModel: dto.vehicleModel || (dto.vehicleReference || ''),
+      vehicleYear: dto.vehicleYear || null,
+      vin: dto.vin || null,
+      mileage: dto.mileage || 0,
+      fuelLevel: dto.fuelLevel || 'half',
+      complaints: dto.complaints || (dto.complaintsText ? [dto.complaintsText] : []),
+      status: dto.status || 'IN_PROGRESS',
+      priority: dto.priority || 'NORMAL',
+      assignedSection: dto.assignedSection || (dto.tasks && dto.tasks.length > 0 ? dto.tasks[0].section : 'General'),
+      assignedMechanicId: dto.assignedMechanicId || (dto.tasks && dto.tasks.length > 0 ? dto.tasks[0].assignedMechanicId : null),
+      notes: dto.notes || 'In-House ERP Tracking Job',
+      externalErpId: userJobNum || null,
+      isSyncedFromErp: true,
       jobNumber,
       tenantId,
       branchId,
-      status: dto.status || 'RECEIVED',
+      startedAt: new Date(),
     }) as unknown as JobCard;
 
     const saved = await this.jobCardRepo.save(jobCard);
 
+    // Create associated tasks/labors if provided
+    if (dto.tasks && Array.isArray(dto.tasks) && dto.tasks.length > 0) {
+      for (let i = 0; i < dto.tasks.length; i++) {
+        const t = dto.tasks[i];
+        const opName = (t.operationName || t.name || '').trim();
+        if (!opName) continue;
+
+        const labor = this.laborRepo.create({
+          jobCardId: saved.id,
+          operationName: opName,
+          section: t.section || saved.assignedSection || 'General',
+          stepOrder: t.stepOrder || i + 1,
+          assignedMechanicId: t.assignedMechanicId || saved.assignedMechanicId || null,
+          estimatedHours: Number(t.estimatedHours) || 1,
+          hourlyRate: Number(t.hourlyRate) || 0,
+          totalPrice: (Number(t.estimatedHours) || 1) * (Number(t.hourlyRate) || 0),
+          status: t.status || (t.assignedMechanicId ? 'IN_PROGRESS' : 'PENDING'),
+          startedAt: t.assignedMechanicId ? new Date() : null,
+        });
+        await this.laborRepo.save(labor);
+      }
+      await this.recalculateTotals(saved.id);
+    }
+
     // Initial Log
     await this.logRepo.save(this.logRepo.create({
       jobCardId: saved.id,
-      employeeId: dto.assignedMechanicId || undefined,
+      employeeId: saved.assignedMechanicId || undefined,
       action: 'CREATED',
-      note: `Job Card ${saved.jobNumber} created for vehicle ${saved.vehiclePlateNumber}`,
+      note: `Job Card ${saved.jobNumber} registered with ${dto.tasks?.length || 0} tasks for in-house tracking`,
     }) as unknown as JobCardLog);
 
-    return saved;
+    return this.findOne(saved.id);
   }
 
   async updateStatus(id: string, body: { status: string; pauseReason?: string; employeeId?: string; note?: string }) {
@@ -535,7 +583,7 @@ export class JobCardsService implements OnModuleInit {
     const count = await this.jobCardRepo.count();
     const year = new Date().getFullYear();
     const jobNumber = rawJobId
-      ? (rawJobId.toUpperCase().startsWith('ERP-') || rawJobId.toUpperCase().startsWith('JC-') ? rawJobId.toUpperCase() : `ERP-${rawJobId.toUpperCase()}`)
+      ? rawJobId
       : `JC-${year}-${String(count + 1).padStart(4, '0')}`;
 
     let savedCard = await this.jobCardRepo.findOne({ where: { jobNumber } });
