@@ -2,8 +2,10 @@ import { Injectable, BadRequestException, UnauthorizedException, ForbiddenExcept
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
+import * as nodemailer from 'nodemailer';
 import { Punch, PunchMethod, PunchType } from './entities/punch.entity';
 import { WorkSession } from '../timesheet/entities/work-session.entity';
+import { LeaveRequest } from './entities/leave-request.entity';
 import { EmployeesService } from '../employees/employees.service';
 import { DevicesService } from '../devices/devices.service';
 import { QrService } from '../qr/qr.service';
@@ -19,6 +21,8 @@ export class PunchesService {
     private punchRepo: Repository<Punch>,
     @InjectRepository(WorkSession)
     private sessionRepo: Repository<WorkSession>,
+    @InjectRepository(LeaveRequest)
+    private leaveRepo: Repository<LeaveRequest>,
     private employeesService: EmployeesService,
     private devicesService: DevicesService,
     private qrService: QrService,
@@ -184,22 +188,33 @@ export class PunchesService {
       where: { employeeId, status: 'open' },
     });
 
-    if (!openSession) return null;
+    if (!openSession) {
+      // If employee currently has status === 'IN', but no open session exists, reset to 'OUT'
+      const emp = await this.employeesService.findOne(tenantId, employeeId);
+      if (emp && emp.status === 'IN') {
+        await this.employeesService.update(tenantId, employeeId, { status: 'OUT' });
+      }
+      return null;
+    }
 
     const now = new Date();
     const inTime = openSession.startedAt ? new Date(openSession.startedAt) : now;
-    const inDateStr = inTime.toISOString().split('T')[0];
-    const todayStr = now.toISOString().split('T')[0];
 
-    const defaultOutTime = new Date(inTime);
-    defaultOutTime.setHours(21, 0, 0, 0); // 9:00 PM default cutoff
+    // Format dates in Asia/Dubai timezone (GST, UTC+4)
+    const inDateStr = inTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
 
-    if (inTime >= defaultOutTime) {
+    // 8:00 PM (20:00:00) GST on the punch-in date
+    const defaultOutTime = new Date(`${inDateStr}T20:00:00+04:00`);
+
+    if (inTime.getTime() >= defaultOutTime.getTime()) {
       defaultOutTime.setTime(inTime.getTime() + 60 * 60 * 1000);
     }
 
-    // If session started on an earlier date OR (started today and current time is past 9:00 PM)
-    if (inDateStr < todayStr || (inDateStr === todayStr && now > defaultOutTime)) {
+    // Auto-close if:
+    // 1) Session started on a previous date (inDateStr < todayStr)
+    // 2) Session started today, but current time in Dubai is past 8:00 PM (now >= defaultOutTime)
+    if (inDateStr < todayStr || (inDateStr === todayStr && now.getTime() >= defaultOutTime.getTime())) {
       const autoPunch = this.punchRepo.create({
         tenantId,
         employeeId,
@@ -208,7 +223,7 @@ export class PunchesService {
         serverTs: defaultOutTime,
         method: PunchMethod.AUTO_CLOSE,
         flags: ['DEFAULT_PUNCHOUT'],
-        clientMeta: { remarks: 'Default Punchout (Auto 9:00 PM)' },
+        clientMeta: { remarks: 'Default Punchout (Auto 8:00 PM)' },
         sessionId: openSession.id,
       });
 
@@ -225,6 +240,50 @@ export class PunchesService {
     }
 
     return null;
+  }
+
+  /**
+   * Auto-close ALL open stale sessions for ALL employees.
+   * Called on kiosk load / midnight rollover to ensure next-day kiosk shows OUT for everyone.
+   */
+  async autoCloseAllStaleSessions(tenantId: string) {
+    const openSessions = await this.sessionRepo.find({
+      where: { status: 'open' },
+    });
+
+    const results: any[] = [];
+    for (const session of openSessions) {
+      const empId = session.employeeId;
+      const result = await this.autoCloseStaleSessions(tenantId, empId);
+      if (result) {
+        results.push({ employeeId: empId, punchId: result.id });
+      }
+    }
+
+    // Double check all employees with status === 'IN' to guarantee no orphaned 'IN' statuses
+    const employees = await this.employeesService.findAll(tenantId);
+    const now = new Date();
+    const todayDubai = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
+
+    for (const emp of employees) {
+      if (emp.status === 'IN') {
+        const activeSession = await this.sessionRepo.findOne({
+          where: { employeeId: emp.id, status: 'open' },
+        });
+        if (!activeSession) {
+          await this.employeesService.update(tenantId, emp.id, { status: 'OUT' });
+        } else {
+          const sTime = activeSession.startedAt ? new Date(activeSession.startedAt) : now;
+          const sDateDubai = sTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
+          const defaultOutTime = new Date(`${sDateDubai}T20:00:00+04:00`);
+          if (sDateDubai < todayDubai || (sDateDubai === todayDubai && now.getTime() >= defaultOutTime.getTime())) {
+            await this.autoCloseStaleSessions(tenantId, emp.id);
+          }
+        }
+      }
+    }
+
+    return { closedCount: results.length, closed: results };
   }
 
   async simplePunch(tenantId: string, employeeId: string, type: PunchType, ip: string, userAgent: string, method: PunchMethod = PunchMethod.KIOSK_PIN) {
@@ -352,6 +411,124 @@ export class PunchesService {
     if (!punch) throw new NotFoundException('Punch record not found');
     await this.punchRepo.remove(punch);
     return { success: true, message: 'Punch record deleted successfully.' };
+  }
+
+  /**
+   * Submit a leave request and send email notification to fazahautogarage@gmail.com
+   */
+  async submitLeaveRequest(tenantId: string, employeeId: string, dto: { leaveDate: string; leaveEndDate?: string; reason: string }) {
+    const employee = await this.employeesService.findOne(tenantId, employeeId);
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    if (!dto.leaveDate || !dto.reason) {
+      throw new BadRequestException('Leave date and reason are required');
+    }
+
+    const leaveRequest = this.leaveRepo.create({
+      tenantId,
+      employeeId: employee.id,
+      leaveDate: dto.leaveDate,
+      leaveEndDate: dto.leaveEndDate || dto.leaveDate,
+      reason: dto.reason,
+      status: 'pending',
+      emailSent: false,
+    });
+
+    await this.leaveRepo.save(leaveRequest);
+
+    // Format date range for email
+    const dateRange = dto.leaveEndDate && dto.leaveEndDate !== dto.leaveDate
+      ? `${dto.leaveDate} to ${dto.leaveEndDate}`
+      : dto.leaveDate;
+
+    // Send email notification
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER || 'fazahautogarage@gmail.com',
+          pass: process.env.SMTP_PASS || '',
+        },
+      });
+
+      const mailOptions = {
+        from: `"Fazah Auto Garage - Staff Portal" <${process.env.SMTP_USER || 'fazahautogarage@gmail.com'}>`,
+        to: 'fazahautogarage@gmail.com',
+        subject: `📋 Leave Request — ${employee.fullName} (${employee.employeeCode})`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 12px; overflow: hidden;">
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); padding: 24px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 22px;">FAZAH AUTO GARAGE</h1>
+              <p style="color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;">Staff Leave Request Notification</p>
+            </div>
+            <div style="padding: 24px;">
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                <h2 style="color: #1e293b; margin: 0 0 16px 0; font-size: 18px;">📋 New Leave Application</h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 10px 0; font-weight: bold; color: #64748b; font-size: 13px; width: 140px;">Employee Name</td>
+                    <td style="padding: 10px 0; color: #1e293b; font-size: 14px; font-weight: 600;">${employee.fullName}</td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 10px 0; font-weight: bold; color: #64748b; font-size: 13px;">Employee Code</td>
+                    <td style="padding: 10px 0; color: #1e293b; font-size: 14px; font-weight: 600;">${employee.employeeCode}</td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 10px 0; font-weight: bold; color: #64748b; font-size: 13px;">Job Title</td>
+                    <td style="padding: 10px 0; color: #1e293b; font-size: 14px;">${employee.jobTitle || 'Staff'}</td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 10px 0; font-weight: bold; color: #64748b; font-size: 13px;">Leave Date(s)</td>
+                    <td style="padding: 10px 0; color: #2563eb; font-size: 14px; font-weight: 700;">${dateRange}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; font-weight: bold; color: #64748b; font-size: 13px; vertical-align: top;">Reason</td>
+                    <td style="padding: 10px 0; color: #1e293b; font-size: 14px;">${dto.reason}</td>
+                  </tr>
+                </table>
+              </div>
+              <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; text-align: center;">
+                <p style="margin: 0; color: #92400e; font-size: 12px; font-weight: 600;">
+                  ⚠️ This leave request requires your review and approval.
+                </p>
+              </div>
+              <p style="color: #94a3b8; font-size: 11px; text-align: center; margin-top: 16px;">
+                Submitted on ${new Date().toLocaleString('en-AE', { timeZone: 'Asia/Dubai' })} via Fazah Staff Portal
+              </p>
+            </div>
+          </div>
+        `,
+      };
+
+      if (process.env.SMTP_PASS) {
+        await transporter.sendMail(mailOptions);
+        leaveRequest.emailSent = true;
+        await this.leaveRepo.save(leaveRequest);
+      }
+    } catch (emailError) {
+      console.error('Failed to send leave request email:', emailError);
+      // Don't fail the request if email fails — the leave is still recorded
+    }
+
+    return {
+      success: true,
+      leaveRequestId: leaveRequest.id,
+      emailSent: leaveRequest.emailSent,
+      message: leaveRequest.emailSent
+        ? 'Leave request submitted and email sent to management.'
+        : 'Leave request submitted successfully. Email notification will be sent when SMTP is configured.',
+    };
+  }
+
+  /**
+   * Get leave requests for an employee
+   */
+  async getLeaveRequests(employeeId: string) {
+    return this.leaveRepo.find({
+      where: { employeeId },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
   }
 }
 

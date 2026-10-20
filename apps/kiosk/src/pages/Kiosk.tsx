@@ -12,6 +12,8 @@ export default function Kiosk() {
   const [punchState, setPunchState] = useState<'IDLE' | 'LOADING' | 'SUCCESS'>('IDLE');
   const [errorMsg, setErrorMsg] = useState('');
 
+  const [currentDateStr, setCurrentDateStr] = useState(() => new Date().toDateString());
+
   // Set Page Title
   useEffect(() => {
     document.title = "Fazah - Entrance Attendance Kiosk";
@@ -19,33 +21,57 @@ export default function Kiosk() {
 
   const loadEmployees = () => {
     setLoading(true);
-    apiFetch('/api/kiosk/employees')
-      .then(res => {
-        if (!res.ok) throw new Error('API request failed');
-        return res.json();
-      })
-      .then(data => {
-        if (Array.isArray(data)) {
-          setEmployees(data);
-        } else {
-          setEmployees([]);
-        }
-      })
-      .catch(err => {
-        console.error('Failed to fetch kiosk employees:', err);
-        setEmployees([]);
-      })
-      .finally(() => setLoading(false));
+    // Auto-close any stale sessions from previous dates (default 8 PM punch-out)
+    apiFetch('/api/kiosk/auto-close-stale', { method: 'POST' })
+      .catch(() => {}) // silent fail - best effort
+      .finally(() => {
+        apiFetch('/api/kiosk/employees')
+          .then(res => {
+            if (!res.ok) throw new Error('API request failed');
+            return res.json();
+          })
+          .then(data => {
+            if (Array.isArray(data)) {
+              setEmployees(data);
+            } else {
+              setEmployees([]);
+            }
+          })
+          .catch(err => {
+            console.error('Failed to fetch kiosk employees:', err);
+            setEmployees([]);
+          })
+          .finally(() => setLoading(false));
+      });
   };
 
   useEffect(() => {
     loadEmployees();
   }, []);
 
+  // Clock tick + Auto-refresh when crossing to a new date (midnight rollover)
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
+    const timer = setInterval(() => {
+      const now = new Date();
+      setTime(now);
+      const todayStr = now.toDateString();
+      if (todayStr !== currentDateStr) {
+        setCurrentDateStr(todayStr);
+        loadEmployees();
+      }
+    }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [currentDateStr]);
+
+  // Periodic status refresh every 60s when idle
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (pin === '' && punchState === 'IDLE') {
+        loadEmployees();
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [pin, punchState]);
 
   const triggerHaptic = () => {
     try {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserCircle, Clock, LogOut, CheckSquare, Wrench, Play, CheckCircle2, Package, Pause, RefreshCw, Zap, Plus, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { UserCircle, Clock, LogOut, CheckSquare, Wrench, Play, CheckCircle2, Package, Pause, RefreshCw, Zap, Plus, ShoppingBag, ShieldCheck, Calendar, Send, Mail, FileText } from 'lucide-react';
 import { apiFetch } from '../services/api';
 
 export default function EmployeePortal() {
@@ -12,13 +12,23 @@ export default function EmployeePortal() {
   const [jobCards, setJobCards] = useState<any[]>([]);
   const [inventoryParts, setInventoryParts] = useState<any[]>([]);
   const [workTimeline, setWorkTimeline] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'jobcards' | 'attendance' | 'tasks'>('jobcards');
+  const [activeTab, setActiveTab] = useState<'jobcards' | 'attendance' | 'tasks' | 'leave'>('jobcards');
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [showPartModal, setShowPartModal] = useState(false);
   const [partSource, setPartSource] = useState<'inventory' | 'vendor'>('inventory');
   const [partQty, setPartQty] = useState(1);
   const [selectedPartId, setSelectedPartId] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Leave Application State
+  const [leaveDate, setLeaveDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [leaveCategory, setLeaveCategory] = useState('Annual Leave');
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leaveSuccessMsg, setLeaveSuccessMsg] = useState('');
+  const [leaveErrorMsg, setLeaveErrorMsg] = useState('');
+  const [leaveHistory, setLeaveHistory] = useState<any[]>([]);
 
   // Vendor Purchase Requisition State
   const [vendorPart, setVendorPart] = useState({
@@ -104,6 +114,9 @@ export default function EmployeePortal() {
 
       const resTimeline = await apiFetch(`/api/kiosk/staff-work-timeline/${empId}`);
       if (resTimeline.ok) setWorkTimeline(await resTimeline.json());
+
+      const resLeave = await apiFetch(`/api/kiosk/staff-leave/${empId}`);
+      if (resLeave.ok) setLeaveHistory(await resLeave.json());
     } catch (e) {
       console.error(e);
     }
@@ -250,6 +263,66 @@ export default function EmployeePortal() {
     setPin('');
     setSelectedJob(null);
     setWorkTimeline(null);
+    setLeaveSuccessMsg('');
+    setLeaveErrorMsg('');
+    setLeaveDate('');
+    setLeaveEndDate('');
+    setLeaveReason('');
+    setLeaveHistory([]);
+  };
+
+  const fetchLeaveHistory = async (empId: string) => {
+    try {
+      const res = await apiFetch(`/api/kiosk/staff-leave/${empId}`);
+      if (res.ok) setLeaveHistory(await res.json());
+    } catch (_) {}
+  };
+
+  const handleApplyLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveDate) {
+      setLeaveErrorMsg('Please select your leave date.');
+      return;
+    }
+    const reasonText = leaveReason.trim();
+    if (!reasonText) {
+      setLeaveErrorMsg('Please explain the reason for your leave application.');
+      return;
+    }
+    const fullReason = leaveCategory ? `[${leaveCategory}] ${reasonText}` : reasonText;
+
+    setLeaveSubmitting(true);
+    setLeaveErrorMsg('');
+    setLeaveSuccessMsg('');
+
+    try {
+      const res = await apiFetch(`/api/kiosk/staff-leave/${loggedInEmp.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leaveDate,
+          leaveEndDate: leaveEndDate || leaveDate,
+          reason: fullReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to submit leave application');
+      }
+
+      setLeaveSuccessMsg(
+        '✅ Your leave request has been submitted! Management has been notified via email at fazahautogarage@gmail.com.'
+      );
+      setLeaveDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      fetchLeaveHistory(loggedInEmp.id);
+    } catch (err: any) {
+      setLeaveErrorMsg(err.message || 'Failed to submit leave request.');
+    } finally {
+      setLeaveSubmitting(false);
+    }
   };
 
   const formatMinutes = (mins: number) => {
@@ -431,6 +504,7 @@ export default function EmployeePortal() {
             { id: 'jobcards', label: 'Assigned Job Cards', icon: Wrench, count: jobCards.length },
             { id: 'tasks', label: 'Shop Tasks', icon: CheckSquare, count: tasks.length },
             { id: 'attendance', label: 'Attendance History', icon: Clock, count: punches.length },
+            { id: 'leave', label: 'Apply for Leave', icon: Calendar, count: leaveHistory.length },
           ].map(tab => {
             const Icon = tab.icon;
             return (
@@ -896,6 +970,219 @@ export default function EmployeePortal() {
           </div>
         )}
 
+        {/* TAB 4: APPLY FOR LEAVE */}
+        {activeTab === 'leave' && (
+          <div className="space-y-6">
+            {/* LEAVE APPLICATION FORM */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 pb-4 mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <Calendar className="text-blue-600" /> Apply for Staff Leave
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Select your leave date and reason. The application will be automatically emailed to management.
+                  </p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl px-3 py-1.5 flex items-center gap-2">
+                  <Mail size={14} className="text-blue-600 shrink-0" />
+                  <span className="text-2xs sm:text-xs font-mono font-bold text-blue-800">
+                    fazahautogarage@gmail.com
+                  </span>
+                </div>
+              </div>
+
+              {leaveSuccessMsg && (
+                <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-emerald-800 text-xs sm:text-sm font-semibold flex items-center gap-2 mb-6 shadow-sm">
+                  <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                  <span>{leaveSuccessMsg}</span>
+                </div>
+              )}
+
+              {leaveErrorMsg && (
+                <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 text-rose-800 text-xs sm:text-sm font-semibold flex items-center gap-2 mb-6 shadow-sm">
+                  <span className="shrink-0 text-base">⚠️</span>
+                  <span>{leaveErrorMsg}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleApplyLeave} className="space-y-6">
+                {/* APPLICANT METADATA PREVIEW */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Applicant:</span>
+                    <span className="font-black text-slate-900">{loggedInEmp.fullName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Employee Code:</span>
+                    <span className="font-mono font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-lg">{loggedInEmp.employeeCode}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Role:</span>
+                    <span className="font-bold text-slate-700">{loggedInEmp.jobTitle || 'Staff'}</span>
+                  </div>
+                </div>
+
+                {/* LEAVE CATEGORY PILLS */}
+                <div>
+                  <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
+                    Select Leave Type
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'Annual Leave', label: '🌴 Annual Leave' },
+                      { id: 'Medical / Sick Leave', label: '🏥 Medical / Sick' },
+                      { id: 'Emergency Leave', label: '🚨 Emergency Leave' },
+                      { id: 'Family Emergency', label: '👨‍👩‍👧 Family Matters' },
+                      { id: 'Personal Leave', label: '💼 Personal Affair' },
+                      { id: 'Other', label: '📌 Other' },
+                    ].map(cat => (
+                      <button
+                        type="button"
+                        key={cat.id}
+                        onClick={() => setLeaveCategory(cat.id)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          leaveCategory === cat.id
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* DATE SELECTORS */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                      Leave Start Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={leaveDate}
+                      onChange={e => setLeaveDate(e.target.value)}
+                      required
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                      Leave End Date <span className="text-slate-400 font-normal text-[11px]">(Optional for 1 day)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={leaveEndDate}
+                      onChange={e => setLeaveEndDate(e.target.value)}
+                      min={leaveDate || undefined}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* REASON TEXTAREA */}
+                <div>
+                  <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                    Reason for Leave <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={leaveReason}
+                    onChange={e => setLeaveReason(e.target.value)}
+                    required
+                    rows={4}
+                    placeholder="Provide details regarding your leave request, duties handover or emergency context..."
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-sm"
+                  />
+                </div>
+
+                {/* SUBMIT BUTTON */}
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={leaveSubmitting}
+                    className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {leaveSubmitting ? (
+                      <>
+                        <RefreshCw className="animate-spin" size={16} /> Submitting & Sending Email...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={16} /> Submit Leave Application
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* MY LEAVE HISTORY TABLE */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm">
+              <h3 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
+                <FileText className="text-lime-600" /> My Leave Request History
+              </h3>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-slate-500 border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="py-3 px-3">Leave Dates</th>
+                      <th className="py-3 px-3">Reason</th>
+                      <th className="py-3 px-3">Email Notification</th>
+                      <th className="py-3 px-3">Approval Status</th>
+                      <th className="py-3 px-3 text-right">Applied On</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leaveHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                          No leave requests submitted yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      leaveHistory.map(lr => {
+                        const dateText = lr.leaveEndDate && lr.leaveEndDate !== lr.leaveDate
+                          ? `${lr.leaveDate} to ${lr.leaveEndDate}`
+                          : lr.leaveDate;
+                        return (
+                          <tr key={lr.id} className="border-b border-slate-100 text-xs hover:bg-slate-50 transition-colors">
+                            <td className="py-3.5 px-3 font-mono font-bold text-blue-700">
+                              {dateText}
+                            </td>
+                            <td className="py-3.5 px-3 text-slate-800 max-w-xs truncate" title={lr.reason}>
+                              {lr.reason}
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-2xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                <Mail size={11} /> Sent to fazahautogarage@gmail.com
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`px-2.5 py-1 rounded-full text-2xs font-bold uppercase tracking-wider ${
+                                lr.status === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : lr.status === 'rejected'
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                  : 'bg-amber-100 text-amber-800 border border-amber-300'
+                              }`}>
+                                {lr.status}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3 text-right text-slate-500 font-mono text-[11px]">
+                              {lr.createdAt ? new Date(lr.createdAt).toLocaleDateString() : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* TASK PAUSE MODAL */}

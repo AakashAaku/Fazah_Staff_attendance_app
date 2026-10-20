@@ -44,7 +44,9 @@ export class PunchesController {
 
   @Get('employees')
   async getKioskEmployees() {
-    const employees = await this.employeesService.findAll('11111111-1111-1111-1111-111111111111');
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    await this.punchesService.autoCloseAllStaleSessions(tenantId);
+    const employees = await this.employeesService.findAll(tenantId);
     return employees.map((emp) => ({
       id: emp.id,
       name: emp.fullName,
@@ -134,5 +136,29 @@ export class PunchesController {
   async deletePunch(@Param('id') id: string) {
     const tenantId = '11111111-1111-1111-1111-111111111111';
     return this.punchesService.deletePunch(tenantId, id);
+  }
+
+  // --- AUTO-CLOSE STALE SESSIONS (called on kiosk load) --- //
+
+  @Post('auto-close-stale')
+  async autoCloseStale() {
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    return this.punchesService.autoCloseAllStaleSessions(tenantId);
+  }
+
+  // --- LEAVE REQUEST ENDPOINTS --- //
+
+  @Post('staff-leave/:employeeId')
+  async submitLeave(
+    @Param('employeeId') employeeId: string,
+    @Body() body: { leaveDate: string; leaveEndDate?: string; reason: string },
+  ) {
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    return this.punchesService.submitLeaveRequest(tenantId, employeeId, body);
+  }
+
+  @Get('staff-leave/:employeeId')
+  async getLeaveRequests(@Param('employeeId') employeeId: string) {
+    return this.punchesService.getLeaveRequests(employeeId);
   }
 }
