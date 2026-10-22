@@ -211,10 +211,10 @@ export class PunchesService {
       defaultOutTime.setTime(inTime.getTime() + 60 * 60 * 1000);
     }
 
-    // Auto-close if:
-    // 1) Session started on a previous date (inDateStr < todayStr)
-    // 2) Session started today, but current time in Dubai is past 8:00 PM (now >= defaultOutTime)
-    if (inDateStr < todayStr || (inDateStr === todayStr && now.getTime() >= defaultOutTime.getTime())) {
+    // ONLY auto-close if the session started on a PREVIOUS DATE!
+    // (i.e. After 12 at night when the clock has started a new day).
+    // NEVER auto-close on the same day! Staff can punch out at any time when they finish and leave the garage.
+    if (inDateStr < todayStr) {
       const autoPunch = this.punchRepo.create({
         tenantId,
         employeeId,
@@ -245,6 +245,7 @@ export class PunchesService {
   /**
    * Auto-close ALL open stale sessions for ALL employees.
    * Called on kiosk load / midnight rollover to ensure next-day kiosk shows OUT for everyone.
+   * Only auto-closes if session started on a PREVIOUS day (past 12 midnight).
    */
   async autoCloseAllStaleSessions(tenantId: string) {
     const openSessions = await this.sessionRepo.find({
@@ -260,7 +261,7 @@ export class PunchesService {
       }
     }
 
-    // Double check all employees with status === 'IN' to guarantee no orphaned 'IN' statuses
+    // Double check all employees with status === 'IN'
     const employees = await this.employeesService.findAll(tenantId);
     const now = new Date();
     const todayDubai = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
@@ -275,8 +276,8 @@ export class PunchesService {
         } else {
           const sTime = activeSession.startedAt ? new Date(activeSession.startedAt) : now;
           const sDateDubai = sTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
-          const defaultOutTime = new Date(`${sDateDubai}T20:00:00+04:00`);
-          if (sDateDubai < todayDubai || (sDateDubai === todayDubai && now.getTime() >= defaultOutTime.getTime())) {
+          // ONLY if session started on a previous day (past 12 midnight)
+          if (sDateDubai < todayDubai) {
             await this.autoCloseStaleSessions(tenantId, emp.id);
           }
         }
@@ -290,7 +291,7 @@ export class PunchesService {
     const employee = await this.employeesService.findOne(tenantId, employeeId);
     if (!employee) throw new NotFoundException('Employee not found');
 
-    // Auto-close any stale or unclosed session from previous dates / past 9:00 PM
+    // Auto-close any stale or unclosed session from previous dates (if past midnight)
     await this.autoCloseStaleSessions(tenantId, employee.id);
 
     const workDate = new Date().toISOString().split('T')[0];
@@ -358,59 +359,233 @@ export class PunchesService {
     });
   }
 
-  async getAllPunches(tenantId: string, dateStr?: string) {
-    const qb = this.punchRepo.createQueryBuilder('p')
+  /**
+   * Unified Attendance Records — Returns ONE ROW per employee shift session (Punch In + Punch Out paired).
+   * Supports specific date or date range.
+   */
+  async getAllPunches(tenantId: string, dateStr?: string, startDate?: string, endDate?: string) {
+    // 1. Fetch sessions
+    const sessionQb = this.sessionRepo.createQueryBuilder('s')
+      .leftJoinAndSelect('s.employee', 'employee')
+      .leftJoinAndSelect('s.inPunch', 'inPunch')
+      .leftJoinAndSelect('s.outPunch', 'outPunch')
+      .where('s.tenantId = :tenantId', { tenantId })
+      .orderBy('s.startedAt', 'DESC');
+
+    if (startDate && endDate) {
+      sessionQb.andWhere('s.workDate >= :startDate AND s.workDate <= :endDate', { startDate, endDate });
+    } else if (dateStr) {
+      sessionQb.andWhere('s.workDate = :dateStr', { dateStr });
+    }
+
+    const sessions = await sessionQb.getMany();
+
+    // 2. Also check if there are standalone punches for the date not linked to a session
+    const punchQb = this.punchRepo.createQueryBuilder('p')
       .leftJoinAndSelect('p.employee', 'employee')
       .where('p.tenantId = :tenantId', { tenantId })
       .orderBy('p.serverTs', 'DESC');
 
-    if (dateStr) {
-      const start = new Date(`${dateStr}T00:00:00.000Z`);
-      const end = new Date(`${dateStr}T23:59:59.999Z`);
-      qb.andWhere('p.serverTs >= :start AND p.serverTs <= :end', { start, end });
+    if (startDate && endDate) {
+      const sDate = new Date(`${startDate}T00:00:00.000Z`);
+      const eDate = new Date(`${endDate}T23:59:59.999Z`);
+      punchQb.andWhere('p.serverTs >= :sDate AND p.serverTs <= :eDate', { sDate, eDate });
+    } else if (dateStr) {
+      const sDate = new Date(`${dateStr}T00:00:00.000Z`);
+      const eDate = new Date(`${dateStr}T23:59:59.999Z`);
+      punchQb.andWhere('p.serverTs >= :sDate AND p.serverTs <= :eDate', { sDate, eDate });
     }
 
-    const punches = await qb.getMany();
+    const rawPunches = await punchQb.getMany();
 
-    // Standard Shift Check-in Expectation: 09:00 AM with 10 mins Grace (09:10 AM cutoff)
-    return punches.map((p) => {
+    const sessionInPunchIds = new Set(sessions.map(s => s.inPunchId).filter(Boolean));
+    const sessionOutPunchIds = new Set(sessions.map(s => s.outPunchId).filter(Boolean));
+
+    const records: any[] = [];
+
+    // Format all sessions into single attendance rows
+    for (const s of sessions) {
+      const inTime = s.startedAt ? new Date(s.startedAt) : (s.inPunch?.serverTs ? new Date(s.inPunch.serverTs) : null);
+      const outTime = s.endedAt ? new Date(s.endedAt) : (s.outPunch?.serverTs ? new Date(s.outPunch.serverTs) : null);
+
       let isLate = false;
       let lateMinutes = 0;
-      let isDefaultPunchout = false;
+      let graceStatus = 'On Time';
 
-      if (p.type === 'IN' && p.serverTs) {
-        const punchDate = new Date(p.serverTs);
-        const expectedTime = new Date(punchDate);
-        expectedTime.setHours(9, 10, 0, 0); // 9:10 AM grace cutoff
-
-        if (punchDate > expectedTime) {
+      if (inTime) {
+        const inDubaiTime = new Date(inTime.toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));
+        const hour = inDubaiTime.getHours();
+        const min = inDubaiTime.getMinutes();
+        if (hour > 9 || (hour === 9 && min > 10)) {
           isLate = true;
-          const shiftStart = new Date(punchDate);
-          shiftStart.setHours(9, 0, 0, 0); // 9:00 AM standard shift start
-          lateMinutes = Math.floor((punchDate.getTime() - shiftStart.getTime()) / (1000 * 60));
+          lateMinutes = (hour - 9) * 60 + min;
+          graceStatus = `Late (+${lateMinutes}m)`;
         }
       }
 
-      if (p.type === 'OUT') {
-        if (p.method === PunchMethod.AUTO_CLOSE || (p.flags && p.flags.includes('DEFAULT_PUNCHOUT')) || (p.clientMeta?.remarks?.includes('Default Punchout'))) {
-          isDefaultPunchout = true;
-        }
+      const isDefaultPunchout = s.outPunch?.method === PunchMethod.AUTO_CLOSE ||
+        Boolean(s.outPunch?.flags && s.outPunch.flags.includes('DEFAULT_PUNCHOUT')) ||
+        Boolean(s.outPunch?.clientMeta?.remarks?.includes('Default Punchout'));
+
+      let punchOutRemarks = 'Regular Punchout';
+      let status: 'OPEN' | 'COMPLETED' | 'AUTO_CLOSED' = 'COMPLETED';
+
+      if (!outTime) {
+        punchOutRemarks = 'Active (Currently Working)';
+        status = 'OPEN';
+      } else if (isDefaultPunchout) {
+        punchOutRemarks = 'Default Punchout (Auto 8:00 PM)';
+        status = 'AUTO_CLOSED';
       }
 
-      return {
-        ...p,
+      let durationMins = s.workedMinutes || 0;
+      if (!durationMins && inTime && outTime) {
+        durationMins = Math.max(0, Math.floor((outTime.getTime() - inTime.getTime()) / 60000));
+      }
+
+      const durationFormatted = outTime
+        ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+        : 'In Progress';
+
+      records.push({
+        id: s.id,
+        sessionId: s.id,
+        inPunchId: s.inPunchId || s.inPunch?.id,
+        outPunchId: s.outPunchId || s.outPunch?.id,
+        employeeId: s.employeeId,
+        employee: s.employee ? {
+          id: s.employee.id,
+          fullName: s.employee.fullName,
+          employeeCode: s.employee.employeeCode,
+          jobTitle: s.employee.jobTitle || 'Staff',
+        } : null,
+        workDate: s.workDate || (inTime ? inTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' }) : dateStr),
+        inTime,
+        outTime,
+        workedMinutes: durationMins,
+        durationFormatted,
         isLate,
         lateMinutes,
+        graceStatus,
         isDefaultPunchout,
-      };
+        punchOutRemarks,
+        status,
+      });
+    }
+
+    // Handle any orphaned raw punches that didn't have a WorkSession
+    const unlinkedPunches = rawPunches.filter(p => !sessionInPunchIds.has(p.id) && !sessionOutPunchIds.has(p.id));
+    const unlinkedGroups = new Map<string, typeof rawPunches>();
+    for (const p of unlinkedPunches) {
+      const pDate = new Date(p.serverTs).toLocaleDateString('en-CA', { timeZone: 'Asia/Dubai' });
+      const key = `${p.employeeId}_${pDate}`;
+      if (!unlinkedGroups.has(key)) unlinkedGroups.set(key, []);
+      unlinkedGroups.get(key)!.push(p);
+    }
+
+    for (const [key, pList] of unlinkedGroups.entries()) {
+      const inP = pList.find(p => p.type === PunchType.IN);
+      const outP = pList.find(p => p.type === PunchType.OUT);
+      if (inP || outP) {
+        const emp = (inP?.employee || outP?.employee);
+        const inTime = inP ? new Date(inP.serverTs) : null;
+        const outTime = outP ? new Date(outP.serverTs) : null;
+        let isLate = false;
+        let lateMinutes = 0;
+        let graceStatus = 'On Time';
+        if (inTime) {
+          const inDubaiTime = new Date(inTime.toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));
+          const hour = inDubaiTime.getHours();
+          const min = inDubaiTime.getMinutes();
+          if (hour > 9 || (hour === 9 && min > 10)) {
+            isLate = true;
+            lateMinutes = (hour - 9) * 60 + min;
+            graceStatus = `Late (+${lateMinutes}m)`;
+          }
+        }
+        const isDefaultPunchout = outP?.method === PunchMethod.AUTO_CLOSE ||
+          Boolean(outP?.flags && outP.flags.includes('DEFAULT_PUNCHOUT')) ||
+          Boolean(outP?.clientMeta?.remarks?.includes('Default Punchout'));
+
+        let durationMins = 0;
+        if (inTime && outTime) {
+          durationMins = Math.max(0, Math.floor((outTime.getTime() - inTime.getTime()) / 60000));
+        }
+
+        records.push({
+          id: inP?.id || outP?.id,
+          inPunchId: inP?.id,
+          outPunchId: outP?.id,
+          employeeId: emp?.id,
+          employee: emp ? {
+            id: emp.id,
+            fullName: emp.fullName,
+            employeeCode: emp.employeeCode,
+            jobTitle: emp.jobTitle || 'Staff',
+          } : null,
+          workDate: key.split('_')[1],
+          inTime,
+          outTime,
+          workedMinutes: durationMins,
+          durationFormatted: outTime ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m` : 'In Progress',
+          isLate,
+          lateMinutes,
+          graceStatus,
+          isDefaultPunchout,
+          punchOutRemarks: !outTime ? 'Active (Currently Working)' : isDefaultPunchout ? 'Default Punchout (Auto 8:00 PM)' : 'Regular Punchout',
+          status: !outTime ? 'OPEN' : isDefaultPunchout ? 'AUTO_CLOSED' : 'COMPLETED',
+        });
+      }
+    }
+
+    // Sort records descending by inTime / date
+    records.sort((a, b) => {
+      const timeA = a.inTime ? new Date(a.inTime).getTime() : 0;
+      const timeB = b.inTime ? new Date(b.inTime).getTime() : 0;
+      return timeB - timeA;
     });
+
+    return records;
   }
 
-  async deletePunch(tenantId: string, punchId: string) {
-    const punch = await this.punchRepo.findOne({ where: { id: punchId, tenantId } });
-    if (!punch) throw new NotFoundException('Punch record not found');
-    await this.punchRepo.remove(punch);
-    return { success: true, message: 'Punch record deleted successfully.' };
+  async deletePunch(tenantId: string, id: string) {
+    // Check if it's a WorkSession
+    const session = await this.sessionRepo.findOne({ where: { id, tenantId } });
+    if (session) {
+      if (session.inPunchId) {
+        await this.punchRepo.delete({ id: session.inPunchId }).catch(() => {});
+      }
+      if (session.outPunchId) {
+        await this.punchRepo.delete({ id: session.outPunchId }).catch(() => {});
+      }
+      await this.sessionRepo.remove(session);
+      return { success: true, message: 'Attendance session deleted successfully.' };
+    }
+
+    // Check if it's a Punch
+    const punch = await this.punchRepo.findOne({ where: { id, tenantId } });
+    if (punch) {
+      const linkedSession = await this.sessionRepo.findOne({
+        where: [
+          { inPunchId: id, tenantId },
+          { outPunchId: id, tenantId },
+        ],
+      });
+      if (linkedSession) {
+        if (linkedSession.outPunchId === id) {
+          linkedSession.outPunchId = null;
+          linkedSession.endedAt = null;
+          linkedSession.status = 'open';
+          await this.sessionRepo.save(linkedSession);
+        } else {
+          await this.sessionRepo.remove(linkedSession);
+        }
+      }
+      await this.punchRepo.remove(punch);
+      return { success: true, message: 'Punch record deleted successfully.' };
+    }
+
+    throw new NotFoundException('Attendance record not found');
   }
 
   /**

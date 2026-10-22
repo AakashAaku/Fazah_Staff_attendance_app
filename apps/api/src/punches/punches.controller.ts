@@ -112,9 +112,13 @@ export class PunchesController {
   }
 
   @Get('admin/punches')
-  async getAllPunches(@Query('date') date?: string) {
+  async getAllPunches(
+    @Query('date') date?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
     const tenantId = '11111111-1111-1111-1111-111111111111';
-    return this.punchesService.getAllPunches(tenantId, date);
+    return this.punchesService.getAllPunches(tenantId, date, startDate, endDate);
   }
 
   @Post('admin/tasks/:taskId/reopen')

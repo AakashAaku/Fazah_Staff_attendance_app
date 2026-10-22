@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, MessageSquare, Save, ShieldCheck, RefreshCw, Calendar, Search, ShoppingBag, Edit, Trash2, CheckCircle2 } from 'lucide-react';
+import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, MessageSquare, Save, ShieldCheck, RefreshCw, Calendar, Search, ShoppingBag, Edit, Trash2, CheckCircle2, Download } from 'lucide-react';
 import { apiFetch } from '../services/api';
 
 export default function Admin() {
@@ -48,6 +48,8 @@ export default function Admin() {
 
   // ATTENDANCE & REOPENED TASKS REPORT STATE
   const [selectedAttendanceDate, setSelectedAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [attendanceSearchQuery, setAttendanceSearchQuery] = useState<string>('');
+  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<string>('ALL'); // ALL, COMPLETED, OPEN, AUTO_CLOSED, LATE
   const [reopenedReport, setReopenedReport] = useState<any[]>([]);
   const [reopenedReportDate, setReopenedReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showReopenModal, setShowReopenModal] = useState(false);
@@ -1201,15 +1203,15 @@ export default function Admin() {
     });
   };
 
-  const handleDeletePunch = (punch: any) => {
+  const handleDeletePunch = (record: any) => {
     setDeleteModal({
       isOpen: true,
-      title: 'Delete Attendance Punch',
-      message: `Are you sure you want to delete this punch record for ${punch.employee?.fullName || 'Technician'} (${punch.type} at ${new Date(punch.serverTs).toLocaleTimeString()})?`,
-      confirmText: 'Delete Punch Record',
+      title: 'Delete Attendance Session Record',
+      message: `Are you sure you want to permanently delete the attendance record for ${record.employee?.fullName || 'Technician'} on ${record.workDate || 'this date'}? This will remove both punch in and punch out for this session.`,
+      confirmText: 'Delete Attendance Record',
       onConfirm: async () => {
         try {
-          const res = await apiFetch(`/api/kiosk/admin/punches/${punch.id}`, {
+          const res = await apiFetch(`/api/kiosk/admin/punches/${record.id || record.sessionId || record.inPunchId}`, {
             method: 'DELETE'
           });
           if (res.ok) {
@@ -1222,6 +1224,84 @@ export default function Admin() {
       }
     });
   };
+
+  const handleExportAttendanceCSV = () => {
+    if (!filteredAttendancePunches || filteredAttendancePunches.length === 0) {
+      alert('No attendance records found to export for the selected filter.');
+      return;
+    }
+
+    const headers = [
+      'Employee Code',
+      'Employee Name',
+      'Role / Job Title',
+      'Work Date',
+      'Punch In Time',
+      'Punch In Status',
+      'Punch Out Time',
+      'Punch Out Remarks',
+      'Total Working Hours',
+      'Session Status'
+    ];
+
+    const rows = filteredAttendancePunches.map((p: any) => {
+      const code = p.employee?.employeeCode || '';
+      const name = p.employee?.fullName || 'Technician';
+      const role = p.employee?.jobTitle || 'Staff';
+      const date = p.workDate || (p.inTime ? new Date(p.inTime).toLocaleDateString() : '');
+      const inTimeStr = p.inTime ? new Date(p.inTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+      const inStatus = p.isLate ? `Late (+${p.lateMinutes}m)` : 'On Time';
+      const outTimeStr = p.outTime ? new Date(p.outTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active (Currently Working)';
+      const outType = p.punchOutRemarks || (p.isDefaultPunchout ? 'Default Auto 8:00 PM' : 'Regular Punchout');
+      const duration = p.durationFormatted || (p.workedMinutes ? `${Math.floor(p.workedMinutes / 60)}h ${p.workedMinutes % 60}m` : '-');
+      const status = p.status || (p.outTime ? 'COMPLETED' : 'OPEN');
+
+      return [
+        `"${code.replace(/"/g, '""')}"`,
+        `"${name.replace(/"/g, '""')}"`,
+        `"${role.replace(/"/g, '""')}"`,
+        `"${date}"`,
+        `"${inTimeStr}"`,
+        `"${inStatus}"`,
+        `"${outTimeStr}"`,
+        `"${outType}"`,
+        `"${duration}"`,
+        `"${status}"`
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Fazah_Attendance_Report_${selectedAttendanceDate || 'All_Dates'}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrintAttendance = () => {
+    window.print();
+  };
+
+  const filteredAttendancePunches = punches.filter((p: any) => {
+    if (attendanceSearchQuery.trim()) {
+      const q = attendanceSearchQuery.toLowerCase();
+      const matchName = (p.employee?.fullName || '').toLowerCase().includes(q);
+      const matchCode = (p.employee?.employeeCode || '').toLowerCase().includes(q);
+      const matchRole = (p.employee?.jobTitle || '').toLowerCase().includes(q);
+      if (!matchName && !matchCode && !matchRole) return false;
+    }
+
+    if (attendanceStatusFilter === 'COMPLETED' && p.status !== 'COMPLETED') return false;
+    if (attendanceStatusFilter === 'OPEN' && p.status !== 'OPEN') return false;
+    if (attendanceStatusFilter === 'AUTO_CLOSED' && !p.isDefaultPunchout) return false;
+    if (attendanceStatusFilter === 'LATE' && !p.isLate) return false;
+
+    return true;
+  });
 
   // JOB CARDS ADVANCED FILTERING
   const todayStr = new Date().toISOString().split('T')[0];
@@ -2617,89 +2697,264 @@ export default function Admin() {
           </div>
         )}
 
-        {/* TAB 5: ATTENDANCE LOGS (WITH DEFAULT CURRENT DATE & OUT-OF-GRACE HIGHLIGHTING) */}
+        {/* TAB 5: ATTENDANCE LOGS (SINGLE ROW IN & OUT + EXPORT & FILTERS) */}
         {activeTab === 'attendance' && (
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
+            {/* HEADER & EXPORT TOOLBAR */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-200 pb-4">
               <div>
                 <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                  <Clock className="text-lime-600" /> Kiosk Attendance Punch Records
+                  <Clock className="text-lime-600" /> Staff Attendance Register & Shift Timesheet
                 </h3>
-                <p className="text-xs text-slate-500 font-medium">Shows current day punches by default. Out of grace time check-ins highlighted in warning color.</p>
+                <p className="text-xs text-slate-500 font-medium">
+                  Unified single-row session record pairing Punch-In and Punch-Out. Auto 8:00 PM cutoff applies only after midnight for forgotten punches.
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200">
-                <Calendar size={16} className="text-slate-500" />
-                <span className="text-xs font-bold text-slate-700">Date Filter:</span>
-                <input
-                  type="date"
-                  value={selectedAttendanceDate}
-                  onChange={e => setSelectedAttendanceDate(e.target.value)}
-                  className="bg-white border border-slate-300 text-slate-900 text-xs font-bold px-2.5 py-1 rounded-xl focus:outline-none"
-                />
+              {/* EXPORT & PRINT BUTTONS */}
+              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                 <button
-                  onClick={() => setSelectedAttendanceDate(new Date().toISOString().split('T')[0])}
-                  className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl"
+                  onClick={handleExportAttendanceCSV}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-2xl shadow-sm flex items-center gap-2 text-xs transition-all active:scale-95"
+                  title="Export Attendance Records as CSV / Excel"
                 >
-                  Today
+                  <Download size={15} /> Export CSV / Excel
+                </button>
+                <button
+                  onClick={handlePrintAttendance}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2.5 rounded-2xl shadow-xs border border-slate-300 flex items-center gap-2 text-xs transition-all active:scale-95"
+                  title="Print Attendance Report or Save as PDF"
+                >
+                  <Printer size={15} /> Print / PDF
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* FILTERS TOOLBAR */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs">
+              {/* SEARCH INPUT */}
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300 flex-1 min-w-[220px]">
+                <Search size={14} className="text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Filter by staff name, code, role..."
+                  value={attendanceSearchQuery}
+                  onChange={e => setAttendanceSearchQuery(e.target.value)}
+                  className="bg-transparent text-slate-900 font-medium text-xs focus:outline-none w-full"
+                />
+                {attendanceSearchQuery && (
+                  <button onClick={() => setAttendanceSearchQuery('')} className="text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+                )}
+              </div>
+
+              {/* DATE PICKER & QUICK BUTTONS */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-slate-600 text-xs flex items-center gap-1">
+                  <Calendar size={13} /> Date:
+                </span>
+                <input
+                  type="date"
+                  value={selectedAttendanceDate}
+                  onChange={e => setSelectedAttendanceDate(e.target.value)}
+                  className="bg-white border border-slate-300 text-slate-900 text-xs font-bold px-2.5 py-1.5 rounded-xl focus:outline-none shadow-xs"
+                />
+                <button
+                  onClick={() => setSelectedAttendanceDate(new Date().toISOString().split('T')[0])}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    selectedAttendanceDate === new Date().toISOString().split('T')[0]
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => {
+                    const y = new Date();
+                    y.setDate(y.getDate() - 1);
+                    setSelectedAttendanceDate(y.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-all"
+                >
+                  Yesterday
+                </button>
+                <button
+                  onClick={() => setSelectedAttendanceDate('')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    !selectedAttendanceDate
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  }`}
+                >
+                  All Dates
+                </button>
+              </div>
+
+              {/* STATUS FILTER PILLS */}
+              <div className="flex items-center gap-1 flex-wrap">
+                {[
+                  { id: 'ALL', label: `All (${filteredAttendancePunches.length})` },
+                  { id: 'COMPLETED', label: 'Completed' },
+                  { id: 'OPEN', label: 'Active (In)' },
+                  { id: 'LATE', label: 'Late' },
+                  { id: 'AUTO_CLOSED', label: 'Auto 8 PM' },
+                ].map(filter => (
+                  <button
+                    key={filter.id}
+                    onClick={() => setAttendanceStatusFilter(filter.id)}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
+                      attendanceStatusFilter === filter.id
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* UNIFIED SINGLE-ROW ATTENDANCE TABLE */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
               <table className="w-full text-left text-sm">
-                <thead className="text-slate-500 border-b border-slate-200 text-xs uppercase font-bold">
+                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 text-xs uppercase font-black tracking-wider">
                   <tr>
-                    <th className="py-3 px-3">Employee Name</th>
-                    <th className="py-3 px-3">Punch Type & Grace Status</th>
-                    <th className="py-3 px-3">Date & Time</th>
-                    <th className="py-3 px-3 text-right">Action</th>
+                    <th className="py-3.5 px-3">Employee Details</th>
+                    <th className="py-3.5 px-3">Work Date</th>
+                    <th className="py-3.5 px-3">Punch In (Arrival)</th>
+                    <th className="py-3.5 px-3">Punch Out (Departure)</th>
+                    <th className="py-3.5 px-3">Working Duration</th>
+                    <th className="py-3.5 px-3">Status</th>
+                    <th className="py-3.5 px-3 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {punches.length === 0 ? (
+                <tbody className="divide-y divide-slate-100">
+                  {filteredAttendancePunches.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-400 font-medium italic">
-                        No punches recorded for selected date ({selectedAttendanceDate}).
+                      <td colSpan={7} className="py-12 text-center text-slate-400 font-medium italic">
+                        No attendance session records found for {selectedAttendanceDate ? `date ${selectedAttendanceDate}` : 'the selected criteria'}.
                       </td>
                     </tr>
-                  ) : punches.map(p => {
-                    const isLate = p.isLate || false;
-                    const isDefaultPunchout = p.isDefaultPunchout || false;
+                  ) : filteredAttendancePunches.map((record: any) => {
+                    const inTime = record.inTime ? new Date(record.inTime) : null;
+                    const outTime = record.outTime ? new Date(record.outTime) : null;
+                    const isLate = record.isLate || false;
+                    const isDefault = record.isDefaultPunchout || false;
+                    const isOpen = !outTime || record.status === 'OPEN';
+
                     return (
-                      <tr key={p.id} className={`border-b border-slate-100 text-xs ${isLate ? 'bg-amber-50/80 border-l-4 border-l-amber-500' : isDefaultPunchout ? 'bg-blue-50/60 border-l-4 border-l-blue-400' : ''}`}>
-                        <td className="py-3 px-3 font-bold text-slate-800">
-                          {p.employee?.fullName ? (
-                            <span>{p.employee.fullName} <span className="text-slate-400 font-mono text-[10px]">({p.employee.employeeCode})</span></span>
-                          ) : (
-                            p.employeeId
-                          )}
+                      <tr 
+                        key={record.id} 
+                        className={`text-xs hover:bg-slate-50/80 transition-colors ${
+                          isLate ? 'bg-amber-50/40' : isDefault ? 'bg-blue-50/30' : ''
+                        }`}
+                      >
+                        {/* EMPLOYEE DETAILS */}
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900 text-sm">
+                            {record.employee?.fullName || 'Technician'}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                              {record.employee?.employeeCode || 'EMP'}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              • {record.employee?.jobTitle || 'Staff'}
+                            </span>
+                          </div>
                         </td>
-                        <td className="py-3 px-3 flex flex-wrap items-center gap-2">
-                          <span className={`px-2.5 py-1 rounded-md font-bold text-xs ${
-                            p.type === 'IN' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-lime-100 text-lime-800 border border-lime-200'
-                          }`}>
-                            {p.type}
+
+                        {/* WORK DATE */}
+                        <td className="py-3 px-3 font-medium text-slate-700">
+                          <span className="font-mono font-bold text-slate-900">
+                            {record.workDate || (inTime ? inTime.toLocaleDateString() : '-')}
                           </span>
-                          {isLate && (
-                            <span className="px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] rounded-md flex items-center gap-1 shadow-xs">
-                              ⚠️ Out of Grace (After 9:10 AM, +{p.lateMinutes}m)
-                            </span>
-                          )}
-                          {isDefaultPunchout && (
-                            <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px] rounded-md flex items-center gap-1 shadow-xs">
-                              🌙 Default Punchout (Auto 9:00 PM)
+                          {inTime && (
+                            <span className="text-[10px] text-slate-400 block font-normal">
+                              {inTime.toLocaleDateString(undefined, { weekday: 'short' })}
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-3 font-mono text-slate-600">{new Date(p.serverTs).toLocaleString()}</td>
+
+                        {/* PUNCH IN (ARRIVAL) */}
+                        <td className="py-3 px-3">
+                          {inTime ? (
+                            <div>
+                              <span className="font-mono font-bold text-slate-900 text-xs block">
+                                🟢 {inTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {isLate ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] bg-amber-100 text-amber-900 border border-amber-300 mt-1 shadow-2xs">
+                                  ⚠️ Late (+{record.lateMinutes}m)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-200 mt-1">
+                                  ✓ On Time
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">No Punch In</span>
+                          )}
+                        </td>
+
+                        {/* PUNCH OUT (DEPARTURE) */}
+                        <td className="py-3 px-3">
+                          {outTime ? (
+                            <div>
+                              <span className="font-mono font-bold text-slate-900 text-xs block">
+                                🔴 {outTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {isDefault ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] bg-blue-100 text-blue-900 border border-blue-300 mt-1 shadow-2xs">
+                                  🌙 Default Auto (8:00 PM)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200 mt-1">
+                                  Regular Punchout
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold text-[11px] bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                              <span className="w-2 h-2 rounded-full bg-emerald-600"></span> Active (Currently In)
+                            </span>
+                          )}
+                        </td>
+
+                        {/* WORKING DURATION */}
+                        <td className="py-3 px-3">
+                          <span className="font-mono font-black text-slate-900 text-sm block">
+                            {record.durationFormatted || '-'}
+                          </span>
+                          {record.workedMinutes > 0 && (
+                            <span className="text-[10px] text-slate-500 font-normal">
+                              ({record.workedMinutes} total mins)
+                            </span>
+                          )}
+                        </td>
+
+                        {/* SESSION STATUS */}
+                        <td className="py-3 px-3">
+                          <span className={`px-2.5 py-1 rounded-md font-black text-[10px] uppercase tracking-wider ${
+                            isOpen
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : isDefault
+                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                              : 'bg-slate-100 text-slate-800 border border-slate-200'
+                          }`}>
+                            {isOpen ? 'Active' : isDefault ? 'Auto Closed' : 'Completed'}
+                          </span>
+                        </td>
+
+                        {/* ACTION */}
                         <td className="py-3 px-3 text-right">
                           <button
-                            onClick={() => handleDeletePunch(p)}
-                            className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-all"
-                            title="Delete Punch Record"
+                            onClick={() => handleDeletePunch(record)}
+                            className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all"
+                            title="Delete this Attendance Session Record"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={15} />
                           </button>
                         </td>
                       </tr>
