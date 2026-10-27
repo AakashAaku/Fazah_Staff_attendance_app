@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, UserCircle, Search, ArrowLeft, Clock, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, UserCircle, Search, ArrowLeft, Clock, ShieldCheck, Lock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../services/api';
+import { detectPublicIp, GARAGE_STATIC_IP } from '../services/network';
 
 export default function Kiosk() {
   const [time, setTime] = useState(new Date());
@@ -13,6 +14,32 @@ export default function Kiosk() {
   const [errorMsg, setErrorMsg] = useState('');
 
   const [currentDateStr, setCurrentDateStr] = useState(() => new Date().toDateString());
+
+  // Garage Static Public IP Verification (2.50.2.51)
+  const [detectedIp, setDetectedIp] = useState<string>('');
+  const [isGarageNetwork, setIsGarageNetwork] = useState<boolean | null>(null);
+  const [checkingIp, setCheckingIp] = useState<boolean>(true);
+
+  const verifyNetworkIp = async () => {
+    setCheckingIp(true);
+    try {
+      const result = await detectPublicIp();
+      setDetectedIp(result.ip);
+      setIsGarageNetwork(result.isGarage);
+    } catch (err) {
+      console.error('Network IP check error:', err);
+      setIsGarageNetwork(false);
+    } finally {
+      setCheckingIp(false);
+    }
+  };
+
+  useEffect(() => {
+    verifyNetworkIp();
+    // Periodically re-check public IP every 45 seconds
+    const ipTimer = setInterval(verifyNetworkIp, 45000);
+    return () => clearInterval(ipTimer);
+  }, []);
 
   // Set Page Title
   useEffect(() => {
@@ -106,6 +133,10 @@ export default function Kiosk() {
   };
 
   const submitPunch = async (finalPin: string) => {
+    if (!isGarageNetwork) {
+      setErrorMsg(`Attendance clocking is strictly restricted to Fazah Garage Wi-Fi (IP: ${GARAGE_STATIC_IP}). Your IP: ${detectedIp || 'Unknown'}`);
+      return;
+    }
     setPunchState('LOADING');
     setErrorMsg('');
     
@@ -173,12 +204,27 @@ export default function Kiosk() {
           </div>
         </div>
         
-        <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto border-t sm:border-t-0 border-slate-700/60 pt-2 sm:pt-0">
+        <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto border-t sm:border-t-0 border-slate-700/60 pt-2 sm:pt-0 gap-1.5">
           <div className="flex items-center gap-2">
             <Clock size={16} className="text-lime-400 sm:hidden" />
             <h2 className="text-xl sm:text-3xl font-black text-white font-mono tracking-widest">{timeString}</h2>
           </div>
-          <p className="text-xs text-lime-400 font-semibold">{dateString}</p>
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <p className="text-xs text-lime-400 font-semibold">{dateString}</p>
+            {checkingIp && isGarageNetwork === null ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-700/80 text-amber-300 border border-amber-400/30 animate-pulse">
+                <Wifi size={11} /> Checking IP...
+              </span>
+            ) : isGarageNetwork ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" title={`Connected via Garage Static IP ${GARAGE_STATIC_IP}`}>
+                <Wifi size={11} className="text-emerald-400" /> Garage Wi-Fi ({GARAGE_STATIC_IP})
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40" title={`Detected IP: ${detectedIp || 'Unknown'} (Requires ${GARAGE_STATIC_IP})`}>
+                <WifiOff size={11} className="text-rose-400" /> Outside Network (Punch Locked)
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -304,6 +350,17 @@ export default function Kiosk() {
               <p className="text-slate-300 max-w-xs text-xs sm:text-sm">
                 Select your name on the left grid, then enter your 6-digit secret PIN to register attendance.
               </p>
+              {!isGarageNetwork ? (
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold">
+                  <WifiOff size={14} className="text-rose-400" />
+                  Outside Garage Wi-Fi ({GARAGE_STATIC_IP}) • Punching Restricted
+                </div>
+              ) : (
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold">
+                  <Wifi size={14} className="text-emerald-400" />
+                  Garage Wi-Fi Verified ({GARAGE_STATIC_IP})
+                </div>
+              )}
             </div>
           )}
 
@@ -320,53 +377,83 @@ export default function Kiosk() {
                 <p className="text-2xs sm:text-xs text-slate-400">Default PIN: 123456</p>
               </div>
 
-              {/* PIN Dots */}
-              <div className="flex gap-2.5 sm:gap-3 mb-4 sm:mb-6">
-                {[...Array(6)].map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full transition-all duration-200 ${
-                      i < pin.length 
-                        ? 'bg-lime-400 scale-125 shadow-lg shadow-lime-400/50' 
-                        : 'bg-slate-700'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {errorMsg && (
-                <div className="text-rose-300 mb-3 bg-rose-500/20 px-3 py-1.5 rounded-xl text-xs border border-rose-500/30 font-bold text-center w-full">
-                  {errorMsg}
-                </div>
-              )}
-
-              {/* Touch Keypad */}
-              <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
-                {['1','2','3','4','5','6','7','8','9','C','0','⌫'].map(key => (
+              {/* IP GEOFENCE RESTRICTION: Hide keypad and punch button when outside Garage Static IP 2.50.2.51 */}
+              {!isGarageNetwork ? (
+                <div className="w-full bg-rose-950/40 border border-rose-500/50 rounded-2xl p-5 text-center flex flex-col items-center shadow-xl animate-fade-in">
+                  <div className="w-12 h-12 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center mb-3 text-rose-400">
+                    <Lock size={24} />
+                  </div>
+                  <h4 className="text-white font-extrabold text-base mb-1">
+                    Punch In / Out Restricted
+                  </h4>
+                  <p className="text-xs text-rose-200 font-medium leading-relaxed mb-3">
+                    Attendance clocking is strictly restricted to Fazah Garage Wi-Fi (Static IP: <strong className="font-mono text-white bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700">{GARAGE_STATIC_IP}</strong>).
+                  </p>
+                  <div className="bg-slate-900/90 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 mb-4 inline-flex items-center gap-2">
+                    <span>Your Public IP:</span>
+                    <span className="font-bold text-rose-400">{detectedIp || 'Unknown'}</span>
+                  </div>
                   <button
-                    key={key}
                     type="button"
-                    onClick={() => {
-                      if (key === 'C') handleClear();
-                      else if (key === '⌫') handleBackspace();
-                      else handlePinPress(key);
-                    }}
-                    className="h-14 sm:h-16 bg-slate-900 hover:bg-slate-700 text-white font-extrabold text-xl sm:text-2xl rounded-xl sm:rounded-2xl border border-slate-700 active:scale-95 transition-all shadow-md flex items-center justify-center select-none"
+                    onClick={verifyNetworkIp}
+                    disabled={checkingIp}
+                    className="w-full bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold text-xs py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                   >
-                    {key}
+                    <RefreshCw size={14} className={checkingIp ? 'animate-spin' : ''} />
+                    {checkingIp ? 'Checking Connection...' : 'Re-check Network Connection'}
                   </button>
-                ))}
-              </div>
-              
-              <button 
-                type="button"
-                onClick={handleEnter}
-                disabled={pin.length === 0}
-                className="mt-4 sm:mt-5 w-full bg-gradient-to-r from-blue-600 to-lime-500 hover:from-blue-500 hover:to-lime-400 disabled:opacity-40 text-white font-black text-base sm:text-lg py-3.5 sm:py-4 rounded-xl sm:rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2 select-none"
-              >
-                <ShieldCheck size={20} />
-                Confirm Punch {selectedEmployee.status === 'IN' ? 'OUT' : 'IN'}
-              </button>
+                </div>
+              ) : (
+                <>
+                  {/* PIN Dots */}
+                  <div className="flex gap-2.5 sm:gap-3 mb-4 sm:mb-6">
+                    {[...Array(6)].map((_, i) => (
+                      <div 
+                        key={i} 
+                        className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full transition-all duration-200 ${
+                          i < pin.length 
+                            ? 'bg-lime-400 scale-125 shadow-lg shadow-lime-400/50' 
+                            : 'bg-slate-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  {errorMsg && (
+                    <div className="text-rose-300 mb-3 bg-rose-500/20 px-3 py-1.5 rounded-xl text-xs border border-rose-500/30 font-bold text-center w-full">
+                      {errorMsg}
+                    </div>
+                  )}
+
+                  {/* Touch Keypad */}
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
+                    {['1','2','3','4','5','6','7','8','9','C','0','⌫'].map(key => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          if (key === 'C') handleClear();
+                          else if (key === '⌫') handleBackspace();
+                          else handlePinPress(key);
+                        }}
+                        className="h-14 sm:h-16 bg-slate-900 hover:bg-slate-700 text-white font-extrabold text-xl sm:text-2xl rounded-xl sm:rounded-2xl border border-slate-700 active:scale-95 transition-all shadow-md flex items-center justify-center select-none"
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <button 
+                    type="button"
+                    onClick={handleEnter}
+                    disabled={pin.length === 0}
+                    className="mt-4 sm:mt-5 w-full bg-gradient-to-r from-blue-600 to-lime-500 hover:from-blue-500 hover:to-lime-400 disabled:opacity-40 text-white font-black text-base sm:text-lg py-3.5 sm:py-4 rounded-xl sm:rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2 select-none"
+                  >
+                    <ShieldCheck size={20} />
+                    Confirm Punch {selectedEmployee.status === 'IN' ? 'OUT' : 'IN'}
+                  </button>
+                </>
+              )}
             </div>
           )}
 

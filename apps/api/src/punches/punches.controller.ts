@@ -32,14 +32,42 @@ export class PunchesController {
     return await this.punchesService.punchMobile(tenantId, dto, ip, userAgent);
   }
 
+  @Get('client-ip')
+  async getClientIp(@Req() req: any, @Ip() ip: string) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIp = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) ||
+                     req.headers['x-real-ip'] ||
+                     ip ||
+                     '';
+    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost' || clientIp.includes('127.0.0.1');
+    const isGarageIp = clientIp.includes('2.50.2.51') || isLocal;
+    return {
+      ip: clientIp,
+      isGarageIp,
+      allowedIp: '2.50.2.51',
+    };
+  }
+
   @Post('punch')
-  async punch(@Body() dto: KioskPunchDto, @Ip() ip: string, @Headers('user-agent') userAgent: string) {
+  async punch(@Body() dto: KioskPunchDto, @Req() req: any, @Ip() ip: string, @Headers('user-agent') userAgent: string) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIp = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) ||
+                     req.headers['x-real-ip'] ||
+                     ip ||
+                     '';
+    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost' || clientIp.includes('127.0.0.1');
+    const isGarageIp = clientIp.includes('2.50.2.51') || isLocal;
+
+    if (!isGarageIp) {
+      throw new UnauthorizedException(`Attendance punching is strictly restricted to Fazah Auto Garage Wi-Fi (IP: 2.50.2.51). Your IP: ${clientIp}`);
+    }
+
     const isValid = await this.employeesService.verifyPin(dto.employeeId, dto.pin);
     if (!isValid) {
       throw new UnauthorizedException('Invalid PIN');
     }
     const tenantId = '11111111-1111-1111-1111-111111111111';
-    return await this.punchesService.simplePunch(tenantId, dto.employeeId, dto.type, ip, userAgent);
+    return await this.punchesService.simplePunch(tenantId, dto.employeeId, dto.type, clientIp, userAgent);
   }
 
   @Get('employees')

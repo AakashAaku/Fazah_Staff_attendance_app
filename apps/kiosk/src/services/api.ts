@@ -49,8 +49,10 @@ export function buildApiUrl(endpoint: string): string {
 export async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
   const url = buildApiUrl(endpoint);
   
-  // Auto-inject Authorization header if adminToken exists and not explicitly set
-  const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+  // Auto-inject Authorization header if adminToken exists in sessionStorage or localStorage
+  const token = typeof window !== 'undefined'
+    ? (sessionStorage.getItem('adminToken') || localStorage.getItem('adminToken'))
+    : null;
   const headers = new Headers(options.headers || {});
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -65,6 +67,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
     !endpoint.includes('/api/kiosk/staff-login')
   ) {
     if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('adminToken');
       localStorage.removeItem('adminToken');
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }

@@ -3,7 +3,14 @@ import { Users, Clock, Plus, LogOut, Wrench, Package, Car, FileText, Printer, Me
 import { apiFetch } from '../services/api';
 
 export default function Admin() {
-  const [token, setToken] = useState(localStorage.getItem('adminToken') || '');
+  const [token, setToken] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    // Clean up any legacy persistent token so Admin does not stay logged in forever
+    try {
+      localStorage.removeItem('adminToken');
+    } catch (_) {}
+    return sessionStorage.getItem('adminToken') || '';
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -60,8 +67,26 @@ export default function Admin() {
   useEffect(() => {
     document.title = "Fazah - Admin";
 
+    // Clean up any legacy persistent localStorage adminToken
+    try {
+      localStorage.removeItem('adminToken');
+    } catch (_) {}
+
+    // If there is an active session token, verify it with the backend immediately
+    if (token) {
+      apiFetch('/api/users')
+        .then(res => {
+          if (res.status === 401 || res.status === 403) {
+            handleLogout();
+            setLoginError('Your admin session has expired. Please sign in with your credentials.');
+          }
+        })
+        .catch(() => {});
+    }
+
     const handleUnauthorized = () => {
       setToken('');
+      sessionStorage.removeItem('adminToken');
       localStorage.removeItem('adminToken');
       setLoginError('Your session has expired. Please sign in again.');
     };
@@ -382,7 +407,8 @@ export default function Admin() {
       if (!res.ok) throw new Error('Invalid credentials');
       const data = await res.json();
       setToken(data.access_token);
-      localStorage.setItem('adminToken', data.access_token);
+      sessionStorage.setItem('adminToken', data.access_token);
+      try { localStorage.removeItem('adminToken'); } catch (_) {}
     } catch (err) {
       setLoginError('Login failed. Please check your credentials.');
     }
@@ -390,7 +416,8 @@ export default function Admin() {
 
   const handleLogout = () => {
     setToken('');
-    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
+    try { localStorage.removeItem('adminToken'); } catch (_) {}
   };
 
   const formatMinutes = (mins: number) => {
